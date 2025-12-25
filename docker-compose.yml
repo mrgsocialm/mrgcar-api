@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    container_name: mrgcar-db
+    environment:
+      POSTGRES_USER: mrgcar
+      POSTGRES_PASSWORD: mrgcar_password
+      POSTGRES_DB: mrgcar
+    ports:
+      - "5432:5432"
+    volumes:
+      - mrgcar_pgdata:/var/lib/postgresql/data
+
+volumes:
+  mrgcar_pgdata:

@@ -1243,6 +1243,239 @@ app.post('/notifications/send', requireAdmin, async (req, res) => {
   }
 });
 
+// ---- Users Management ----
+// Helper: Map user row
+function mapUserRow(row) {
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name || '',
+    avatar: row.avatar_url || null,
+    role: row.role || 'user',
+    status: row.status || 'active',
+    banExpiry: row.ban_expiry || null,
+    restrictions: row.restrictions || [],
+    createdAt: row.created_at,
+    lastSeen: row.last_seen || row.created_at,
+    isActive: row.status !== 'banned',
+  };
+}
+
+// GET /users - List all users (Admin only)
+app.get('/users', requireAdmin, async (req, res) => {
+  try {
+    const { status, role, limit = 100, offset = 0 } = req.query;
+
+    let query = 'SELECT * FROM users WHERE 1=1';
+    const params = [];
+    let paramIndex = 1;
+
+    if (status && status !== 'all') {
+      query += ` AND status = $${paramIndex++}`;
+      params.push(status);
+    }
+
+    if (role && role !== 'all') {
+      query += ` AND role = $${paramIndex++}`;
+      params.push(role);
+    }
+
+    query += ` ORDER BY last_seen DESC NULLS LAST, created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+    params.push(parseInt(limit), parseInt(offset));
+
+    const { rows } = await pool.query(query, params);
+
+    // Get total count
+    let countQuery = 'SELECT COUNT(*) FROM users WHERE 1=1';
+    const countParams = [];
+    let countParamIndex = 1;
+
+    if (status && status !== 'all') {
+      countQuery += ` AND status = $${countParamIndex++}`;
+      countParams.push(status);
+    }
+    if (role && role !== 'all') {
+      countQuery += ` AND role = $${countParamIndex++}`;
+      countParams.push(role);
+    }
+
+    const countResult = await pool.query(countQuery, countParams);
+    const total = parseInt(countResult.rows[0].count, 10);
+
+    return apiResponse.successWithPagination(res, rows.map(mapUserRow), {
+      total,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      hasMore: parseInt(offset) + rows.length < total,
+    });
+  } catch (err) {
+    console.error('GET /users error:', err);
+    return apiResponse.errors.serverError(res, 'Kullanıcılar yüklenirken hata oluştu');
+  }
+});
+
+// GET /users/:id - Get single user (Admin only)
+app.get('/users/:id', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [req.params.id]);
+
+    if (rows.length === 0) {
+      return apiResponse.errors.notFound(res, 'Kullanıcı');
+    }
+
+    return apiResponse.success(res, mapUserRow(rows[0]));
+  } catch (err) {
+    console.error('GET /users/:id error:', err);
+    return apiResponse.errors.serverError(res, 'Kullanıcı yüklenirken hata oluştu');
+  }
+});
+
+// PUT /users/:id/ban - Permanently ban user (Admin only)
+app.put('/users/:id/ban', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE users SET status = 'banned', ban_expiry = NULL, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [req.params.id]
+    );
+
+    if (rows.length === 0) {
+      return apiResponse.errors.notFound(res, 'Kullanıcı');
+    }
+
+    return apiResponse.success(res, {
+      message: 'Kullanıcı kalıcı olarak engellendi',
+      user: mapUserRow(rows[0])
+    });
+  } catch (err) {
+    console.error('PUT /users/:id/ban error:', err);
+    return apiResponse.errors.serverError(res, 'Ban işlemi başarısız');
+  }
+});
+
+// PUT /users/:id/temp-ban - Temporarily ban user (Admin only)
+app.put('/users/:id/temp-ban', requireAdmin, async (req, res) => {
+  try {
+    const { days = 7 } = req.body || {};
+    const banExpiry = new Date(Date.now() + days * 86400000);
+
+    const { rows } = await pool.query(
+      `UPDATE users SET status = 'banned', ban_expiry = $2, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [req.params.id, banExpiry]
+    );
+
+    if (rows.length === 0) {
+      return apiResponse.errors.notFound(res, 'Kullanıcı');
+    }
+
+    return apiResponse.success(res, {
+      message: `Kullanıcı ${days} gün süreyle engellendi`,
+      banExpiry: banExpiry,
+      user: mapUserRow(rows[0])
+    });
+  } catch (err) {
+    console.error('PUT /users/:id/temp-ban error:', err);
+    return apiResponse.errors.serverError(res, 'Geçici ban işlemi başarısız');
+  }
+});
+
+// PUT /users/:id/restrict - Restrict user features (Admin only)
+app.put('/users/:id/restrict', requireAdmin, async (req, res) => {
+  try {
+    const { restrictions = [] } = req.body || {};
+
+    if (!Array.isArray(restrictions) || restrictions.length === 0) {
+      return apiResponse.errors.badRequest(res, 'En az bir kısıtlama seçilmelidir');
+    }
+
+    // Valid restrictions: forum, comments, uploads, messaging
+    const validRestrictions = ['forum', 'comments', 'uploads', 'messaging'];
+    const invalidRestrictions = restrictions.filter(r => !validRestrictions.includes(r));
+    if (invalidRestrictions.length > 0) {
+      return apiResponse.errors.badRequest(res, `Geçersiz kısıtlama: ${invalidRestrictions.join(', ')}`);
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE users SET status = 'restricted', restrictions = $2, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [req.params.id, restrictions]
+    );
+
+    if (rows.length === 0) {
+      return apiResponse.errors.notFound(res, 'Kullanıcı');
+    }
+
+    return apiResponse.success(res, {
+      message: 'Kullanıcı kısıtlandı',
+      restrictions: restrictions,
+      user: mapUserRow(rows[0])
+    });
+  } catch (err) {
+    console.error('PUT /users/:id/restrict error:', err);
+    return apiResponse.errors.serverError(res, 'Kısıtlama işlemi başarısız');
+  }
+});
+
+// PUT /users/:id/unban - Remove ban from user (Admin only)
+app.put('/users/:id/unban', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE users SET status = 'active', ban_expiry = NULL, restrictions = '{}', updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [req.params.id]
+    );
+
+    if (rows.length === 0) {
+      return apiResponse.errors.notFound(res, 'Kullanıcı');
+    }
+
+    return apiResponse.success(res, {
+      message: 'Kullanıcının engeli kaldırıldı',
+      user: mapUserRow(rows[0])
+    });
+  } catch (err) {
+    console.error('PUT /users/:id/unban error:', err);
+    return apiResponse.errors.serverError(res, 'Unban işlemi başarısız');
+  }
+});
+
+// PUT /users/:id/role - Change user role (Admin only)
+app.put('/users/:id/role', requireAdmin, async (req, res) => {
+  try {
+    const { role } = req.body || {};
+
+    const validRoles = ['user', 'moderator', 'admin'];
+    if (!role || !validRoles.includes(role)) {
+      return apiResponse.errors.badRequest(res, `Geçerli roller: ${validRoles.join(', ')}`);
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE users SET role = $2, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [req.params.id, role]
+    );
+
+    if (rows.length === 0) {
+      return apiResponse.errors.notFound(res, 'Kullanıcı');
+    }
+
+    return apiResponse.success(res, {
+      message: `Kullanıcı rolü '${role}' olarak güncellendi`,
+      user: mapUserRow(rows[0])
+    });
+  } catch (err) {
+    console.error('PUT /users/:id/role error:', err);
+    return apiResponse.errors.serverError(res, 'Rol güncelleme işlemi başarısız');
+  }
+});
+
+// PUT /users/:id/last-seen - Update last seen (for app usage tracking)
+app.put('/users/:id/last-seen', async (req, res) => {
+  try {
+    await pool.query('UPDATE users SET last_seen = NOW() WHERE id = $1', [req.params.id]);
+    return apiResponse.success(res, { message: 'Last seen updated' });
+  } catch (err) {
+    console.error('PUT /users/:id/last-seen error:', err);
+    return apiResponse.errors.serverError(res, 'Last seen güncelenemedi');
+  }
+});
+
 // ---- Health Check ----
 app.get('/api/status', (req, res) => {
   res.json({ status: 'ok', message: 'MRGCAR API ayakta' });

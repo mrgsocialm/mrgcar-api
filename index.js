@@ -876,6 +876,241 @@ app.get('/auth/me', async (req, res) => {
     return res.status(401).json({ success: false, error: 'Geçersiz token' });
   }
 });
+
+// ---- Password Reset ----
+const crypto = require('crypto');
+let emailService;
+try {
+  emailService = require('./services/email');
+} catch (e) {
+  console.warn('⚠️  Email service not available');
+  emailService = {
+    sendPasswordResetEmail: async () => ({ success: false, error: 'Email service not configured' })
+  };
+}
+
+// Rate limit tracking for forgot-password (simple in-memory, use Redis in production)
+const forgotPasswordAttempts = new Map();
+const FORGOT_PASSWORD_LIMIT = 3; // Max attempts per hour
+const FORGOT_PASSWORD_WINDOW = 60 * 60 * 1000; // 1 hour
+
+function checkForgotPasswordLimit(email) {
+  const now = Date.now();
+  const key = email.toLowerCase();
+  const attempts = forgotPasswordAttempts.get(key) || [];
+
+  // Filter attempts within the window
+  const recentAttempts = attempts.filter(t => now - t < FORGOT_PASSWORD_WINDOW);
+
+  if (recentAttempts.length >= FORGOT_PASSWORD_LIMIT) {
+    return false; // Limit exceeded
+  }
+
+  // Record this attempt
+  recentAttempts.push(now);
+  forgotPasswordAttempts.set(key, recentAttempts);
+  return true;
+}
+
+// Generate 6-digit code
+function generateResetCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// Generate secure reset token
+function generateResetToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+// POST /auth/forgot-password - Request password reset
+app.post('/auth/forgot-password', authLimiter, async (req, res) => {
+  const { email } = req.body || {};
+
+  if (!email) {
+    return res.status(400).json({ success: false, error: 'Email gerekli' });
+  }
+
+  // Check rate limit
+  if (!checkForgotPasswordLimit(email)) {
+    return res.status(429).json({
+      success: false,
+      error: 'Çok fazla deneme. Lütfen 1 saat sonra tekrar deneyin.'
+    });
+  }
+
+  try {
+    // Check if user exists
+    const userResult = await pool.query(
+      'SELECT id, name, email FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+
+    // Always return success to prevent email enumeration
+    if (userResult.rows.length === 0) {
+      console.log(`Password reset requested for non-existent email: ${email}`);
+      return res.json({
+        success: true,
+        message: 'Eğer bu email kayıtlıysa, şifre sıfırlama kodu gönderildi.'
+      });
+    }
+
+    const user = userResult.rows[0];
+
+    // Delete any existing unused tokens for this user
+    await pool.query(
+      'DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL',
+      [user.id]
+    );
+
+    // Generate new code
+    const code = generateResetCode();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Save to database
+    await pool.query(
+      `INSERT INTO password_reset_tokens (user_id, code, expires_at)
+       VALUES ($1, $2, $3)`,
+      [user.id, code, expiresAt]
+    );
+
+    // Send email
+    const emailResult = await emailService.sendPasswordResetEmail(email, code, user.name);
+
+    if (!emailResult.success) {
+      console.error('Failed to send reset email:', emailResult.error);
+      // Still return success to prevent email enumeration
+    }
+
+    console.log(`Password reset code sent to ${email}: ${code}`); // Remove in production
+
+    return res.json({
+      success: true,
+      message: 'Eğer bu email kayıtlıysa, şifre sıfırlama kodu gönderildi.'
+    });
+  } catch (error) {
+    console.error('POST /auth/forgot-password error:', error);
+    return res.status(500).json({ success: false, error: 'Sunucu hatası' });
+  }
+});
+
+// POST /auth/verify-reset-token - Verify the 6-digit code
+app.post('/auth/verify-reset-token', authLimiter, async (req, res) => {
+  const { email, code } = req.body || {};
+
+  if (!email || !code) {
+    return res.status(400).json({ success: false, error: 'Email ve kod gerekli' });
+  }
+
+  try {
+    // Find user
+    const userResult = await pool.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(400).json({ success: false, error: 'Geçersiz kod' });
+    }
+
+    const userId = userResult.rows[0].id;
+
+    // Find valid token
+    const tokenResult = await pool.query(
+      `SELECT id FROM password_reset_tokens 
+       WHERE user_id = $1 AND code = $2 AND expires_at > NOW() AND used_at IS NULL`,
+      [userId, code]
+    );
+
+    if (tokenResult.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Geçersiz veya süresi dolmuş kod'
+      });
+    }
+
+    // Generate reset token for password change
+    const resetToken = generateResetToken();
+    const tokenExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    // Update token with reset_token
+    await pool.query(
+      `UPDATE password_reset_tokens 
+       SET reset_token = $1, expires_at = $2 
+       WHERE id = $3`,
+      [resetToken, tokenExpiresAt, tokenResult.rows[0].id]
+    );
+
+    return res.json({
+      success: true,
+      valid: true,
+      resetToken,
+      message: 'Kod doğrulandı. Şimdi yeni şifrenizi belirleyebilirsiniz.'
+    });
+  } catch (error) {
+    console.error('POST /auth/verify-reset-token error:', error);
+    return res.status(500).json({ success: false, error: 'Sunucu hatası' });
+  }
+});
+
+// POST /auth/reset-password - Set new password
+app.post('/auth/reset-password', authLimiter, async (req, res) => {
+  const { resetToken, newPassword } = req.body || {};
+
+  if (!resetToken || !newPassword) {
+    return res.status(400).json({ success: false, error: 'Token ve yeni şifre gerekli' });
+  }
+
+  // Password validation
+  if (newPassword.length < 6) {
+    return res.status(400).json({ success: false, error: 'Şifre en az 6 karakter olmalı' });
+  }
+
+  try {
+    // Find valid token
+    const tokenResult = await pool.query(
+      `SELECT prt.id, prt.user_id, u.email 
+       FROM password_reset_tokens prt
+       JOIN users u ON u.id = prt.user_id
+       WHERE prt.reset_token = $1 AND prt.expires_at > NOW() AND prt.used_at IS NULL`,
+      [resetToken]
+    );
+
+    if (tokenResult.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Geçersiz veya süresi dolmuş token. Lütfen tekrar deneyin.'
+      });
+    }
+
+    const { id: tokenId, user_id: userId, email } = tokenResult.rows[0];
+
+    // Hash new password
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    // Update password
+    await pool.query(
+      'UPDATE users SET password_hash = $1 WHERE id = $2',
+      [passwordHash, userId]
+    );
+
+    // Mark token as used
+    await pool.query(
+      'UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1',
+      [tokenId]
+    );
+
+    console.log(`Password reset successful for ${email}`);
+
+    return res.json({
+      success: true,
+      message: 'Şifreniz başarıyla değiştirildi. Yeni şifrenizle giriş yapabilirsiniz.'
+    });
+  } catch (error) {
+    console.error('POST /auth/reset-password error:', error);
+    return res.status(500).json({ success: false, error: 'Sunucu hatası' });
+  }
+});
+
 // ---- Notifications (FCM Token Management) ----
 
 // Middleware to extract user from JWT token

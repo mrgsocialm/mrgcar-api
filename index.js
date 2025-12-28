@@ -1143,6 +1143,48 @@ async function getUserFromToken(req) {
   }
 }
 
+// ---- Notifications ----
+
+// GET /notifications - List sent notifications (Admin only)
+app.get('/notifications', requireAdmin, async (req, res) => {
+  try {
+    // First, check if notifications table exists and create if not
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        body TEXT NOT NULL,
+        target_type VARCHAR(50) DEFAULT 'all',
+        target_id VARCHAR(255),
+        sent_count INTEGER DEFAULT 0,
+        status VARCHAR(50) DEFAULT 'sent',
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    const { rows } = await pool.query(`
+      SELECT id, title, body, target_type, target_id, sent_count, status, created_at 
+      FROM notifications 
+      ORDER BY created_at DESC 
+      LIMIT 50
+    `);
+
+    return apiResponse.success(res, rows.map(row => ({
+      id: row.id.toString(),
+      title: row.title,
+      body: row.body,
+      targetType: row.target_type,
+      targetId: row.target_id,
+      sentCount: row.sent_count,
+      status: row.status,
+      createdAt: row.created_at
+    })));
+  } catch (err) {
+    console.error('GET /notifications error:', err);
+    return apiResponse.errors.serverError(res, 'Bildirimler getirilemedi');
+  }
+});
+
 // POST /notifications/register - Register FCM token
 app.post('/notifications/register', async (req, res) => {
   const user = await getUserFromToken(req);
@@ -1211,16 +1253,16 @@ app.post('/notifications/send', requireAdmin, async (req, res) => {
 
   try {
     let result;
+    let sentCount = 0;
+    let targetType = 'all';
+    let targetId = null;
 
     if (topic) {
       // Send to topic (e.g., 'all', 'news', 'ios', 'android')
       result = await fcmService.sendToTopic(topic, title, body, data || {});
-
-      return apiResponse.success(res, {
-        sent: result.success ? 1 : 0,
-        message: result.success ? `Notification sent to topic '${topic}'` : result.error,
-        messageId: result.messageId
-      });
+      sentCount = result.success ? 1 : 0;
+      targetType = 'topic';
+      targetId = topic;
     } else {
       // Get FCM tokens from database
       let query, params;
@@ -1228,26 +1270,43 @@ app.post('/notifications/send', requireAdmin, async (req, res) => {
       if (userId) {
         query = 'SELECT fcm_token FROM user_devices WHERE user_id = $1 AND is_active = TRUE AND fcm_token IS NOT NULL';
         params = [userId];
+        targetType = 'user';
+        targetId = userId;
       } else {
         query = 'SELECT fcm_token FROM user_devices WHERE is_active = TRUE AND fcm_token IS NOT NULL';
         params = [];
+        targetType = 'all';
       }
 
       const { rows } = await pool.query(query, params);
 
       if (rows.length === 0) {
+        // Save to history even if no devices
+        await pool.query(
+          'INSERT INTO notifications (title, body, target_type, target_id, sent_count, status) VALUES ($1, $2, $3, $4, $5, $6)',
+          [title, body, targetType, targetId, 0, 'no_devices']
+        );
         return apiResponse.success(res, { sent: 0, message: 'No active devices found' });
       }
 
       const tokens = rows.map(r => r.fcm_token).filter(Boolean);
       result = await fcmService.sendToTokens(tokens, title, body, data || {});
-
-      return apiResponse.success(res, {
-        sent: result.success,
-        failed: result.failure,
-        message: `Notification sent to ${result.success} device(s)`,
-      });
+      sentCount = result.success || 0;
     }
+
+    // Save notification to history
+    await pool.query(
+      'INSERT INTO notifications (title, body, target_type, target_id, sent_count, status) VALUES ($1, $2, $3, $4, $5, $6)',
+      [title, body, targetType, targetId, sentCount, 'sent']
+    );
+
+    return apiResponse.success(res, {
+      sent: sentCount,
+      failed: result?.failure || 0,
+      message: topic
+        ? `Notification sent to topic '${topic}'`
+        : `Notification sent to ${sentCount} device(s)`,
+    });
   } catch (err) {
     console.error('POST /notifications/send error:', err);
     return apiResponse.errors.serverError(res, 'Bildirim gönderilemedi');

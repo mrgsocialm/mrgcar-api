@@ -1312,6 +1312,175 @@ app.post('/notifications/send', requireAdmin, async (req, res) => {
     return apiResponse.errors.serverError(res, 'Bildirim gönderilemedi');
   }
 });
+// ---- News ----
+
+// GET /news - List all news articles
+app.get('/news', async (req, res) => {
+  try {
+    // First, check if news table exists and create if not
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS news (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        category VARCHAR(100) DEFAULT 'Automotive News',
+        author VARCHAR(100) DEFAULT 'Admin',
+        summary TEXT,
+        content TEXT,
+        image_url VARCHAR(500),
+        status VARCHAR(50) DEFAULT 'published',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    const { rows } = await pool.query(`
+      SELECT * FROM news 
+      ORDER BY created_at DESC 
+      LIMIT 100
+    `);
+
+    return apiResponse.success(res, rows.map(row => ({
+      id: row.id.toString(),
+      title: row.title,
+      category: row.category,
+      author: row.author,
+      summary: row.summary,
+      content: row.content,
+      imageUrl: row.image_url,
+      status: row.status || 'published',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    })));
+  } catch (err) {
+    console.error('GET /news error:', err);
+    return apiResponse.errors.serverError(res, 'Haberler getirilemedi');
+  }
+});
+
+// GET /news/:id - Get single news article
+app.get('/news/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query('SELECT * FROM news WHERE id = $1', [id]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Haber bulunamadı' } });
+    }
+
+    const row = rows[0];
+    return apiResponse.success(res, {
+      id: row.id.toString(),
+      title: row.title,
+      category: row.category,
+      author: row.author,
+      summary: row.summary,
+      content: row.content,
+      imageUrl: row.image_url,
+      status: row.status || 'published',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    });
+  } catch (err) {
+    console.error('GET /news/:id error:', err);
+    return apiResponse.errors.serverError(res, 'Haber getirilemedi');
+  }
+});
+
+// POST /news - Create news article (Admin only)
+app.post('/news', requireAdmin, async (req, res) => {
+  const { title, category, author, summary, content, imageUrl, status } = req.body || {};
+
+  if (!title) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Başlık gerekli' } });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO news (title, category, author, summary, content, image_url, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+       RETURNING *`,
+      [title, category || 'Automotive News', author || 'Admin', summary || '', content || '', imageUrl || '', status || 'published']
+    );
+
+    const row = rows[0];
+    return apiResponse.success(res, {
+      id: row.id.toString(),
+      title: row.title,
+      category: row.category,
+      author: row.author,
+      summary: row.summary,
+      content: row.content,
+      imageUrl: row.image_url,
+      status: row.status,
+      createdAt: row.created_at
+    }, 201);
+  } catch (err) {
+    console.error('POST /news error:', err);
+    return apiResponse.errors.serverError(res, 'Haber eklenemedi');
+  }
+});
+
+// PUT /news/:id - Update news article (Admin only)
+app.put('/news/:id', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { title, category, author, summary, content, imageUrl, status } = req.body || {};
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE news SET 
+        title = COALESCE($1, title),
+        category = COALESCE($2, category),
+        author = COALESCE($3, author),
+        summary = COALESCE($4, summary),
+        content = COALESCE($5, content),
+        image_url = COALESCE($6, image_url),
+        status = COALESCE($7, status),
+        updated_at = NOW()
+       WHERE id = $8
+       RETURNING *`,
+      [title, category, author, summary, content, imageUrl, status, id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Haber bulunamadı' } });
+    }
+
+    const row = rows[0];
+    return apiResponse.success(res, {
+      id: row.id.toString(),
+      title: row.title,
+      category: row.category,
+      author: row.author,
+      summary: row.summary,
+      content: row.content,
+      imageUrl: row.image_url,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    });
+  } catch (err) {
+    console.error('PUT /news/:id error:', err);
+    return apiResponse.errors.serverError(res, 'Haber güncellenemedi');
+  }
+});
+
+// DELETE /news/:id - Delete news article (Admin only)
+app.delete('/news/:id', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query('DELETE FROM news WHERE id = $1 RETURNING id', [id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Haber bulunamadı' } });
+    }
+
+    return apiResponse.success(res, { deleted: true, id });
+  } catch (err) {
+    console.error('DELETE /news/:id error:', err);
+    return apiResponse.errors.serverError(res, 'Haber silinemedi');
+  }
+});
 
 // ---- Users Management ----
 // Helper: Map user row

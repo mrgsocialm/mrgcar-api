@@ -1,6 +1,9 @@
 /**
  * Rate Limiting Configuration
  * Different limits for public and admin endpoints
+ * 
+ * Note: express-rate-limit v7+ handles req.ip by default with proper IPv6 support
+ * No custom keyGenerator needed - the default is secure and handles IPv6 correctly
  */
 
 const rateLimit = require('express-rate-limit');
@@ -21,7 +24,7 @@ const publicLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     message: rateLimitResponse,
-    keyGenerator: (req) => req.ip,
+    // Uses default keyGenerator which properly handles IPv6
 });
 
 // Admin endpoints (POST/PUT/DELETE) - 60 req/min/ip
@@ -31,7 +34,7 @@ const adminLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     message: rateLimitResponse,
-    keyGenerator: (req) => req.ip,
+    // Uses default keyGenerator which properly handles IPv6
 });
 
 // Auth endpoints (login) - 10 req/min/ip (prevent brute force)
@@ -47,7 +50,7 @@ const authLimiter = rateLimit({
             message: 'Çok fazla giriş denemesi. 1 dakika bekleyin.',
         },
     },
-    keyGenerator: (req) => req.ip,
+    // Uses default keyGenerator which properly handles IPv6
 });
 
 module.exports = {

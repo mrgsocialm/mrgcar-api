@@ -1476,6 +1476,159 @@ app.put('/users/:id/last-seen', async (req, res) => {
   }
 });
 
+// ---- Sliders (Homepage) ----
+// Helper: Map slider row
+function mapSliderRow(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    subtitle: row.subtitle || null,
+    imageUrl: row.image_url,
+    linkType: row.link_type || null,
+    linkId: row.link_id || null,
+    linkUrl: row.link_url || null,
+    order: row.order,
+    isActive: row.is_active,
+    createdAt: row.created_at,
+  };
+}
+
+// GET /sliders - List all sliders
+app.get('/sliders', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM sliders ORDER BY "order" ASC');
+    return apiResponse.success(res, rows.map(mapSliderRow));
+  } catch (err) {
+    console.error('GET /sliders error:', err);
+    return apiResponse.errors.serverError(res, 'Slider\'lar yüklenirken hata oluştu');
+  }
+});
+
+// POST /sliders - Create slider (Admin only)
+app.post('/sliders', requireAdmin, async (req, res) => {
+  try {
+    const { title, subtitle, imageUrl, linkType, linkId, linkUrl, order, isActive } = req.body;
+
+    if (!title || !imageUrl) {
+      return apiResponse.errors.badRequest(res, 'Title ve imageUrl gerekli');
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO sliders (title, subtitle, image_url, link_type, link_id, link_url, "order", is_active) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [title, subtitle || null, imageUrl, linkType || null, linkId || null, linkUrl || null, order || 0, isActive !== false]
+    );
+
+    return apiResponse.success(res, mapSliderRow(rows[0]), 201);
+  } catch (err) {
+    console.error('POST /sliders error:', err);
+    return apiResponse.errors.serverError(res, 'Slider oluşturulamadı');
+  }
+});
+
+// PUT /sliders/:id - Update slider (Admin only)
+app.put('/sliders/:id', requireAdmin, async (req, res) => {
+  try {
+    const { title, subtitle, imageUrl, linkType, linkId, linkUrl, order, isActive } = req.body;
+
+    const { rows } = await pool.query(
+      `UPDATE sliders SET 
+        title = COALESCE($1, title),
+        subtitle = $2,
+        image_url = COALESCE($3, image_url),
+        link_type = $4,
+        link_id = $5,
+        link_url = $6,
+        "order" = COALESCE($7, "order"),
+        is_active = COALESCE($8, is_active),
+        updated_at = NOW()
+       WHERE id = $9 RETURNING *`,
+      [title, subtitle, imageUrl, linkType, linkId, linkUrl, order, isActive, req.params.id]
+    );
+
+    if (rows.length === 0) {
+      return apiResponse.errors.notFound(res, 'Slider');
+    }
+
+    return apiResponse.success(res, mapSliderRow(rows[0]));
+  } catch (err) {
+    console.error('PUT /sliders/:id error:', err);
+    return apiResponse.errors.serverError(res, 'Slider güncellenemedi');
+  }
+});
+
+// DELETE /sliders/:id - Delete slider (Admin only)
+app.delete('/sliders/:id', requireAdmin, async (req, res) => {
+  try {
+    const { rowCount } = await pool.query('DELETE FROM sliders WHERE id = $1', [req.params.id]);
+
+    if (rowCount === 0) {
+      return apiResponse.errors.notFound(res, 'Slider');
+    }
+
+    return apiResponse.success(res, { message: 'Slider silindi' });
+  } catch (err) {
+    console.error('DELETE /sliders/:id error:', err);
+    return apiResponse.errors.serverError(res, 'Slider silinemedi');
+  }
+});
+
+// ---- Forum Replies (Admin) ----
+// GET /forum/posts/:id/replies - Get replies for a post
+app.get('/forum/posts/:id/replies', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT fr.*, u.name as user_name 
+       FROM forum_replies fr 
+       LEFT JOIN users u ON fr.user_id = u.id 
+       WHERE fr.post_id = $1 
+       ORDER BY fr.created_at ASC`,
+      [req.params.id]
+    );
+
+    const mapped = rows.map(row => ({
+      id: row.id,
+      postId: row.post_id,
+      userId: row.user_id,
+      userName: row.user_name || 'Anonymous',
+      content: row.content,
+      likes: row.likes || 0,
+      createdAt: row.created_at,
+      isReported: row.is_reported || false,
+    }));
+
+    return apiResponse.success(res, mapped);
+  } catch (err) {
+    console.error('GET /forum/posts/:id/replies error:', err);
+    return apiResponse.errors.serverError(res, 'Yorumlar yüklenemedi');
+  }
+});
+
+// DELETE /forum/replies/:id - Delete a reply (Admin only)
+app.delete('/forum/replies/:id', requireAdmin, async (req, res) => {
+  try {
+    // Get the post_id before deleting
+    const { rows: replyRows } = await pool.query('SELECT post_id FROM forum_replies WHERE id = $1', [req.params.id]);
+
+    if (replyRows.length === 0) {
+      return apiResponse.errors.notFound(res, 'Yorum');
+    }
+
+    const postId = replyRows[0].post_id;
+
+    // Delete the reply
+    await pool.query('DELETE FROM forum_replies WHERE id = $1', [req.params.id]);
+
+    // Update reply count on the post
+    await pool.query('UPDATE forum_posts SET replies = GREATEST(0, replies - 1) WHERE id = $1', [postId]);
+
+    return apiResponse.success(res, { message: 'Yorum silindi' });
+  } catch (err) {
+    console.error('DELETE /forum/replies/:id error:', err);
+    return apiResponse.errors.serverError(res, 'Yorum silinemedi');
+  }
+});
+
 // ---- Health Check ----
 app.get('/api/status', (req, res) => {
   res.json({ status: 'ok', message: 'MRGCAR API ayakta' });

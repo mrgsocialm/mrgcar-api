@@ -5,6 +5,7 @@ const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require("./db");
+const fcmService = require('./services/fcm');
 
 // Security & validation modules (require after npm install)
 let helmet, publicLimiter, adminLimiter, authLimiter, validate, createCarSchema, updateCarSchema, listCarsQuerySchema;
@@ -1209,34 +1210,44 @@ app.post('/notifications/send', requireAdmin, async (req, res) => {
   }
 
   try {
-    // Get FCM tokens for target users
-    let query, params;
+    let result;
 
-    if (userId) {
-      // Send to specific user
-      query = 'SELECT fcm_token FROM user_devices WHERE user_id = $1 AND is_active = TRUE';
-      params = [userId];
+    if (topic) {
+      // Send to topic (e.g., 'all', 'news', 'ios', 'android')
+      result = await fcmService.sendToTopic(topic, title, body, data || {});
+
+      return apiResponse.success(res, {
+        sent: result.success ? 1 : 0,
+        message: result.success ? `Notification sent to topic '${topic}'` : result.error,
+        messageId: result.messageId
+      });
     } else {
-      // Send to all active users
-      query = 'SELECT fcm_token FROM user_devices WHERE is_active = TRUE';
-      params = [];
+      // Get FCM tokens from database
+      let query, params;
+
+      if (userId) {
+        query = 'SELECT fcm_token FROM user_devices WHERE user_id = $1 AND is_active = TRUE AND fcm_token IS NOT NULL';
+        params = [userId];
+      } else {
+        query = 'SELECT fcm_token FROM user_devices WHERE is_active = TRUE AND fcm_token IS NOT NULL';
+        params = [];
+      }
+
+      const { rows } = await pool.query(query, params);
+
+      if (rows.length === 0) {
+        return apiResponse.success(res, { sent: 0, message: 'No active devices found' });
+      }
+
+      const tokens = rows.map(r => r.fcm_token).filter(Boolean);
+      result = await fcmService.sendToTokens(tokens, title, body, data || {});
+
+      return apiResponse.success(res, {
+        sent: result.success,
+        failed: result.failure,
+        message: `Notification sent to ${result.success} device(s)`,
+      });
     }
-
-    const { rows } = await pool.query(query, params);
-
-    if (rows.length === 0) {
-      return apiResponse.success(res, { sent: 0, message: 'No active devices found' });
-    }
-
-    // Note: Actual Firebase Admin SDK send logic would go here
-    // For now, just return success with count
-    // TODO: Integrate firebase-admin package for actual notification sending
-
-    return apiResponse.success(res, {
-      sent: rows.length,
-      message: `Notification queued for ${rows.length} device(s)`,
-      note: 'Firebase Admin SDK integration pending'
-    });
   } catch (err) {
     console.error('POST /notifications/send error:', err);
     return apiResponse.errors.serverError(res, 'Bildirim gönderilemedi');

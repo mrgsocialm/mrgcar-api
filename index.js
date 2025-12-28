@@ -193,7 +193,7 @@ const requireAdmin = requireAdminJWT;
 // ---- Admin Auth ----
 // POST /admin/login
 app.post('/admin/login', async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password } = req.body || {};
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
@@ -500,7 +500,7 @@ app.get('/news/:id', publicLimiter, async (req, res) => {
 
 // POST /news - Yeni haber ekle (Admin only)
 app.post('/news', requireAdmin, async (req, res) => {
-  const { title, description, content, image, category, author, tags, isPopular } = req.body;
+  const { title, description, content, image, category, author, tags, isPopular } = req.body || {};
 
   if (!title || !description || !content || !category || !author) {
     return res.status(400).json({ error: 'Zorunlu alanlar eksik' });
@@ -648,7 +648,7 @@ app.get('/forum/posts/category/:categoryId', publicLimiter, async (req, res) => 
 
 // Yeni post oluştur
 app.post('/forum/posts', publicLimiter, validate(createForumPostSchema), async (req, res) => {
-  const { title, description, content, category, categoryId, userName, carBrand, carModel } = req.validatedBody || req.body;
+  const { title, description, content, category, categoryId, userName, carBrand, carModel } = req.validatedBody || req.body || {};
 
   try {
     const { rows } = await pool.query(
@@ -738,7 +738,7 @@ app.post('/forum/posts/:id/unlike', publicLimiter, async (req, res) => {
 
 // Giriş yap
 app.post('/auth/login', authLimiter, async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password } = req.body || {};
 
   if (!email || !password) {
     return res.status(400).json({ success: false, error: 'Email ve şifre gerekli' });
@@ -783,7 +783,7 @@ app.post('/auth/login', authLimiter, async (req, res) => {
 
 // Kayıt ol
 app.post('/auth/register', authLimiter, async (req, res) => {
-  const { name, email, password } = req.body;
+  const { name, email, password } = req.body || {};
 
   if (!name || !email || !password) {
     return res.status(400).json({ success: false, error: 'Ad, email ve şifre gerekli' });

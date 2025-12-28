@@ -297,23 +297,36 @@ function mapForumPost(row) {
   };
 }
 
-// GET /cars?status=published|draft&limit=50&offset=0
+// GET /cars?status=published|draft|all&limit=50&offset=0
 app.get("/cars", publicLimiter, validate(listCarsQuerySchema, 'query'), async (req, res) => {
   try {
     const { status, limit, offset } = req.validatedQuery || { status: 'published', limit: 50, offset: 0 };
 
+    // Build query based on status
+    let countQuery, dataQuery;
+    let queryParams;
+
+    if (status === 'all') {
+      // Get all cars regardless of status
+      countQuery = "SELECT COUNT(*) FROM cars";
+      dataQuery = "SELECT * FROM cars ORDER BY created_at DESC LIMIT $1 OFFSET $2";
+      queryParams = [limit, offset];
+    } else {
+      // Filter by specific status
+      countQuery = "SELECT COUNT(*) FROM cars WHERE status = $1";
+      dataQuery = "SELECT * FROM cars WHERE status = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3";
+      queryParams = [status, limit, offset];
+    }
+
     // Get total count for pagination
     const countResult = await pool.query(
-      "SELECT COUNT(*) FROM cars WHERE status = $1",
-      [status]
+      countQuery,
+      status === 'all' ? [] : [status]
     );
     const total = parseInt(countResult.rows[0].count, 10);
 
     // Get paginated results
-    const { rows } = await pool.query(
-      "SELECT * FROM cars WHERE status = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
-      [status, limit, offset]
-    );
+    const { rows } = await pool.query(dataQuery, queryParams);
 
     return apiResponse.successWithPagination(res, rows.map(mapCarRow), {
       total,

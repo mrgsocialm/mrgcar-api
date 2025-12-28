@@ -32,7 +32,7 @@ const updateCarSchema = z.object({
 
 // Query params schema for GET /cars
 const listCarsQuerySchema = z.object({
-    status: z.enum(['draft', 'published']).default('published'),
+    status: z.enum(['draft', 'published', 'all']).default('published'),
     limit: z.coerce.number().int().min(1).max(200).default(50),
     offset: z.coerce.number().int().min(0).default(0),
 });

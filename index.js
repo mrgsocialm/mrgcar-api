@@ -876,6 +876,124 @@ app.get('/auth/me', async (req, res) => {
     return res.status(401).json({ success: false, error: 'Geçersiz token' });
   }
 });
+// ---- Notifications (FCM Token Management) ----
+
+// Middleware to extract user from JWT token
+async function getUserFromToken(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    return decoded;
+  } catch (error) {
+    return null;
+  }
+}
+
+// POST /notifications/register - Register FCM token
+app.post('/notifications/register', async (req, res) => {
+  const user = await getUserFromToken(req);
+  if (!user) {
+    return res.status(401).json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Token gerekli' } });
+  }
+
+  const { fcmToken, deviceType } = req.body || {};
+
+  if (!fcmToken) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'FCM token gerekli' } });
+  }
+
+  try {
+    // Upsert: Insert or update on conflict
+    const { rows } = await pool.query(
+      `INSERT INTO user_devices (user_id, fcm_token, device_type, is_active, updated_at)
+       VALUES ($1, $2, $3, TRUE, NOW())
+       ON CONFLICT (fcm_token) 
+       DO UPDATE SET user_id = $1, device_type = $3, is_active = TRUE, updated_at = NOW()
+       RETURNING id, user_id, fcm_token, device_type, created_at`,
+      [user.userId, fcmToken, deviceType || 'android']
+    );
+
+    return apiResponse.success(res, rows[0], 201);
+  } catch (err) {
+    console.error('POST /notifications/register error:', err);
+    return apiResponse.errors.serverError(res, 'FCM token kaydedilemedi');
+  }
+});
+
+// DELETE /notifications/unregister - Unregister FCM token
+app.delete('/notifications/unregister', async (req, res) => {
+  const user = await getUserFromToken(req);
+  if (!user) {
+    return res.status(401).json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Token gerekli' } });
+  }
+
+  const { fcmToken } = req.body || {};
+
+  if (!fcmToken) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'FCM token gerekli' } });
+  }
+
+  try {
+    // Soft delete - just mark as inactive
+    await pool.query(
+      'UPDATE user_devices SET is_active = FALSE, updated_at = NOW() WHERE fcm_token = $1 AND user_id = $2',
+      [fcmToken, user.userId]
+    );
+
+    return apiResponse.success(res, { unregistered: true });
+  } catch (err) {
+    console.error('DELETE /notifications/unregister error:', err);
+    return apiResponse.errors.serverError(res, 'FCM token silinemedi');
+  }
+});
+
+// POST /notifications/send - Send notification (Admin only)
+app.post('/notifications/send', requireAdmin, async (req, res) => {
+  const { title, body, userId, topic, data } = req.body || {};
+
+  if (!title || !body) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Title ve body gerekli' } });
+  }
+
+  try {
+    // Get FCM tokens for target users
+    let query, params;
+
+    if (userId) {
+      // Send to specific user
+      query = 'SELECT fcm_token FROM user_devices WHERE user_id = $1 AND is_active = TRUE';
+      params = [userId];
+    } else {
+      // Send to all active users
+      query = 'SELECT fcm_token FROM user_devices WHERE is_active = TRUE';
+      params = [];
+    }
+
+    const { rows } = await pool.query(query, params);
+
+    if (rows.length === 0) {
+      return apiResponse.success(res, { sent: 0, message: 'No active devices found' });
+    }
+
+    // Note: Actual Firebase Admin SDK send logic would go here
+    // For now, just return success with count
+    // TODO: Integrate firebase-admin package for actual notification sending
+
+    return apiResponse.success(res, {
+      sent: rows.length,
+      message: `Notification queued for ${rows.length} device(s)`,
+      note: 'Firebase Admin SDK integration pending'
+    });
+  } catch (err) {
+    console.error('POST /notifications/send error:', err);
+    return apiResponse.errors.serverError(res, 'Bildirim gönderilemedi');
+  }
+});
 
 // ---- Health Check ----
 app.get('/api/status', (req, res) => {

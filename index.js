@@ -250,12 +250,16 @@ app.get('/', (req, res) => {
 // ---- Cars ----
 // Helper: DB row → response (body_type → bodyType)
 function mapCarRow(row) {
-  const { body_type, created_at, updated_at, ...rest } = row;
+  const { body_type, created_at, updated_at, show_in_slider, slider_title, slider_subtitle, slider_order, ...rest } = row;
   return {
     ...rest,
     bodyType: body_type,
     createdAt: created_at,
     updatedAt: updated_at,
+    showInSlider: show_in_slider || false,
+    sliderTitle: slider_title || null,
+    sliderSubtitle: slider_subtitle || null,
+    sliderOrder: slider_order || 0,
   };
 }
 
@@ -297,6 +301,32 @@ function mapForumPost(row) {
     isPinned: row.is_pinned,
   };
 }
+
+// GET /cars/slider - Cars marked for homepage slider
+app.get("/cars/slider", publicLimiter, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT * FROM cars 
+      WHERE show_in_slider = TRUE AND status = 'published'
+      ORDER BY slider_order ASC, created_at DESC
+      LIMIT 10
+    `);
+
+    return apiResponse.success(res, rows.map(row => ({
+      id: row.id,
+      make: row.make,
+      model: row.model,
+      title: row.slider_title || `${row.make} ${row.model}`,
+      subtitle: row.slider_subtitle || row.data?.summary || '',
+      imageUrl: row.data?.imageUrls?.[0] || row.data?.imageUrl || null,
+      linkType: 'car',
+      linkValue: row.id.toString(),
+    })));
+  } catch (err) {
+    console.error("GET /cars/slider error:", err);
+    return apiResponse.errors.serverError(res, 'Slider verileri yüklenirken hata oluştu');
+  }
+});
 
 // GET /cars?status=published|draft|all&limit=50&offset=0
 app.get("/cars", publicLimiter, validate(listCarsQuerySchema, 'query'), async (req, res) => {
@@ -381,7 +411,7 @@ app.get("/cars/:id", publicLimiter, async (req, res) => {
 // PATCH /cars/:id (admin korumalı)
 app.patch("/cars/:id", adminLimiter, requireAdmin, validate(updateCarSchema), async (req, res) => {
   try {
-    const { make, model, variant, bodyType, status, data } = req.body;
+    const { make, model, variant, bodyType, status, data, showInSlider, sliderTitle, sliderSubtitle, sliderOrder } = req.body;
 
     // Status validation if provided
     if (status && !["published", "draft"].includes(status)) {
@@ -416,6 +446,23 @@ app.patch("/cars/:id", adminLimiter, requireAdmin, validate(updateCarSchema), as
     if (data !== undefined) {
       updates.push(`data = $${paramIndex++}::jsonb`);
       values.push(JSON.stringify(data));
+    }
+    // Slider fields
+    if (showInSlider !== undefined) {
+      updates.push(`show_in_slider = $${paramIndex++}`);
+      values.push(showInSlider);
+    }
+    if (sliderTitle !== undefined) {
+      updates.push(`slider_title = $${paramIndex++}`);
+      values.push(sliderTitle);
+    }
+    if (sliderSubtitle !== undefined) {
+      updates.push(`slider_subtitle = $${paramIndex++}`);
+      values.push(sliderSubtitle);
+    }
+    if (sliderOrder !== undefined) {
+      updates.push(`slider_order = $${paramIndex++}`);
+      values.push(sliderOrder);
     }
 
     if (updates.length === 0) {
@@ -1865,6 +1912,161 @@ app.delete('/forum/replies/:id', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('DELETE /forum/replies/:id error:', err);
     return apiResponse.errors.serverError(res, 'Yorum silinemedi');
+  }
+});
+
+// ---- Reviews ----
+
+// GET /reviews/recent - Recent reviews for homepage
+app.get('/reviews/recent', publicLimiter, async (req, res) => {
+  try {
+    // Create table if not exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS reviews (
+        id SERIAL PRIMARY KEY,
+        car_id INTEGER,
+        user_id INTEGER,
+        is_admin_review BOOLEAN DEFAULT FALSE,
+        rating INTEGER CHECK (rating >= 1 AND rating <= 5),
+        title VARCHAR(255),
+        content TEXT,
+        pros TEXT,
+        cons TEXT,
+        is_featured BOOLEAN DEFAULT FALSE,
+        status VARCHAR(50) DEFAULT 'published',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    const { rows } = await pool.query(`
+      SELECT r.*, c.make, c.model, c.data, u.name as user_name, u.avatar_url
+      FROM reviews r
+      LEFT JOIN cars c ON r.car_id = c.id
+      LEFT JOIN users u ON r.user_id = u.id
+      WHERE r.status = 'published'
+      ORDER BY r.is_featured DESC, r.created_at DESC
+      LIMIT 10
+    `);
+
+    return apiResponse.success(res, rows.map(row => ({
+      id: row.id,
+      carId: row.car_id,
+      carName: row.make && row.model ? `${row.make} ${row.model}` : 'Araç',
+      carImage: row.data?.imageUrls?.[0] || row.data?.imageUrl || null,
+      userId: row.user_id,
+      userName: row.user_name || 'Anonim',
+      userAvatar: row.avatar_url,
+      isAdminReview: row.is_admin_review,
+      rating: row.rating,
+      title: row.title,
+      content: row.content,
+      pros: row.pros,
+      cons: row.cons,
+      isFeatured: row.is_featured,
+      createdAt: row.created_at,
+      time: formatTimeAgo(row.created_at)
+    })));
+  } catch (err) {
+    console.error('GET /reviews/recent error:', err);
+    return apiResponse.errors.serverError(res, 'İncelemeler yüklenemedi');
+  }
+});
+
+// GET /reviews/car/:carId - Reviews for a specific car
+app.get('/reviews/car/:carId', publicLimiter, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT r.*, u.name as user_name, u.avatar_url
+      FROM reviews r
+      LEFT JOIN users u ON r.user_id = u.id
+      WHERE r.car_id = $1 AND r.status = 'published'
+      ORDER BY r.is_admin_review DESC, r.is_featured DESC, r.created_at DESC
+    `, [req.params.carId]);
+
+    return apiResponse.success(res, rows.map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      userName: row.user_name || 'Anonim',
+      userAvatar: row.avatar_url,
+      isAdminReview: row.is_admin_review,
+      rating: row.rating,
+      title: row.title,
+      content: row.content,
+      pros: row.pros,
+      cons: row.cons,
+      isFeatured: row.is_featured,
+      createdAt: row.created_at,
+      time: formatTimeAgo(row.created_at)
+    })));
+  } catch (err) {
+    console.error('GET /reviews/car/:carId error:', err);
+    return apiResponse.errors.serverError(res, 'İncelemeler yüklenemedi');
+  }
+});
+
+// POST /reviews - Add review (authenticated users)
+app.post('/reviews', async (req, res) => {
+  const user = await getUserFromToken(req);
+  if (!user) {
+    return res.status(401).json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Giriş yapmalısınız' } });
+  }
+
+  const { carId, rating, title, content, pros, cons } = req.body || {};
+
+  if (!carId || !rating) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Araç ve puan gerekli' } });
+  }
+
+  try {
+    const { rows } = await pool.query(`
+      INSERT INTO reviews (car_id, user_id, rating, title, content, pros, cons, is_admin_review, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, 'published')
+      RETURNING *
+    `, [carId, user.userId, rating, title || '', content || '', pros || '', cons || '']);
+
+    return apiResponse.success(res, rows[0], 201);
+  } catch (err) {
+    console.error('POST /reviews error:', err);
+    return apiResponse.errors.serverError(res, 'İnceleme eklenemedi');
+  }
+});
+
+// POST /reviews/admin - Add admin review (admin only)
+app.post('/reviews/admin', requireAdmin, async (req, res) => {
+  const { carId, rating, title, content, pros, cons, isFeatured } = req.body || {};
+
+  if (!carId || !title) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Araç ve başlık gerekli' } });
+  }
+
+  try {
+    const { rows } = await pool.query(`
+      INSERT INTO reviews (car_id, user_id, rating, title, content, pros, cons, is_admin_review, is_featured, status)
+      VALUES ($1, NULL, $2, $3, $4, $5, $6, TRUE, $7, 'published')
+      RETURNING *
+    `, [carId, rating || 5, title, content || '', pros || '', cons || '', isFeatured || false]);
+
+    return apiResponse.success(res, rows[0], 201);
+  } catch (err) {
+    console.error('POST /reviews/admin error:', err);
+    return apiResponse.errors.serverError(res, 'Admin incelemesi eklenemedi');
+  }
+});
+
+// DELETE /reviews/:id - Delete review (admin only)
+app.delete('/reviews/:id', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query('DELETE FROM reviews WHERE id = $1 RETURNING id', [req.params.id]);
+
+    if (result.rowCount === 0) {
+      return apiResponse.errors.notFound(res, 'İnceleme');
+    }
+
+    return apiResponse.success(res, { deleted: true });
+  } catch (err) {
+    console.error('DELETE /reviews/:id error:', err);
+    return apiResponse.errors.serverError(res, 'İnceleme silinemedi');
   }
 });
 

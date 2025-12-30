@@ -65,6 +65,8 @@ function validate(schema, source = 'body') {
                     },
                 });
             }
+
+            console.error('Validation Middleware Error:', error);
             next(error);
         }
     };

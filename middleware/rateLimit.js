@@ -4,6 +4,9 @@
  * 
  * Note: express-rate-limit v7+ handles req.ip by default with proper IPv6 support
  * No custom keyGenerator needed - the default is secure and handles IPv6 correctly
+ * 
+ * validate.xForwardedForHeader is disabled because we trust our nginx proxy
+ * and have set app.set('trust proxy', 1) in index.js
  */
 
 const rateLimit = require('express-rate-limit');
@@ -24,7 +27,7 @@ const publicLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     message: rateLimitResponse,
-    // Uses default keyGenerator which properly handles IPv6
+    validate: { xForwardedForHeader: false }, // We trust our nginx proxy
 });
 
 // Admin endpoints (POST/PUT/DELETE) - 60 req/min/ip
@@ -34,7 +37,7 @@ const adminLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     message: rateLimitResponse,
-    // Uses default keyGenerator which properly handles IPv6
+    validate: { xForwardedForHeader: false }, // We trust our nginx proxy
 });
 
 // Auth endpoints (login) - 10 req/min/ip (prevent brute force)
@@ -50,7 +53,7 @@ const authLimiter = rateLimit({
             message: 'Çok fazla giriş denemesi. 1 dakika bekleyin.',
         },
     },
-    // Uses default keyGenerator which properly handles IPv6
+    validate: { xForwardedForHeader: false }, // We trust our nginx proxy
 });
 
 module.exports = {
@@ -58,3 +61,4 @@ module.exports = {
     adminLimiter,
     authLimiter,
 };
+

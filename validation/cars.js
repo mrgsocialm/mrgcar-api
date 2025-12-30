@@ -12,10 +12,10 @@ const statusEnum = z.enum(['draft', 'published']).default('draft');
 const createCarSchema = z.object({
     make: z.string().min(1, 'Marka zorunludur'),
     model: z.string().min(1, 'Model zorunludur'),
-    variant: z.string().optional().default(''),
-    bodyType: z.string().optional().default(''),
+    variant: z.string().nullable().optional().default(''),
+    bodyType: z.string().nullable().optional().default(''),
     status: statusEnum,
-    data: z.record(z.unknown()).optional().default({}),
+    data: z.record(z.unknown()).nullable().optional().default({}),
 });
 
 // Car update schema (partial - all fields optional)

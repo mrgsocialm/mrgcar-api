@@ -289,6 +289,21 @@ function formatTimeAgo(date) {
   return past.toLocaleDateString('tr-TR');
 }
 
+// Helper: Cars DB row -> response
+function mapCarRow(row) {
+  return {
+    id: row.id,
+    make: row.make,
+    model: row.model,
+    variant: row.variant || '',
+    bodyType: row.body_type || '',
+    status: row.status,
+    data: row.data || {},
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 // Helper: Forum post DB row → response
 function mapForumPost(row) {
   return {

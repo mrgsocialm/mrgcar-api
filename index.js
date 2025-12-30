@@ -1,3 +1,7 @@
+// Sentry must be initialized first before any other imports
+require('./instrument');
+const Sentry = require("@sentry/node");
+
 require('dotenv').config();
 
 const express = require('express');
@@ -2073,6 +2077,26 @@ app.delete('/reviews/:id', requireAdmin, async (req, res) => {
 // ---- Health Check ----
 app.get('/api/status', (req, res) => {
   res.json({ status: 'ok', message: 'MRGCAR API ayakta' });
+});
+
+// ---- Sentry Error Handler ----
+// This must be the last middleware, catches all errors
+Sentry.setupExpressErrorHandler(app);
+
+// Optional: Custom error handler after Sentry
+app.use((err, req, res, _next) => {
+  // Sentry ID for debugging
+  const sentryId = res.sentry;
+  console.error('Unhandled error:', err);
+
+  res.status(500).json({
+    ok: false,
+    error: {
+      code: 'SERVER_ERROR',
+      message: 'Beklenmedik bir hata oluştu',
+      sentryId: sentryId || undefined,
+    }
+  });
 });
 
 app.listen(PORT, '0.0.0.0', () => {

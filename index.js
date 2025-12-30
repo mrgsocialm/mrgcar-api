@@ -2102,6 +2102,11 @@ app.use((err, req, res, _next) => {
   });
 });
 
+// Sentry Test Endpoint (only for testing - triggers a test error)
+app.get("/sentry-test", (req, res) => {
+  throw new Error("Sentry test error - this is intentional!");
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`MRGCAR API http://0.0.0.0:${PORT} üzerinde çalışıyor`);
   console.log(`  - Localhost: http://localhost:${PORT}`);

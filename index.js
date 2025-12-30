@@ -94,6 +94,9 @@ function generateRefreshToken(user) {
   );
 }
 
+// Trust proxy (nginx) for rate limiting to work correctly
+app.set('trust proxy', 1);
+
 // Security middleware
 app.use(helmet());
 

@@ -8,7 +8,6 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
 const multer = require('multer');
 const pool = require("./db");
 const fcmService = require('./services/fcm');

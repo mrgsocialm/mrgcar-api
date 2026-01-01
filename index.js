@@ -8,6 +8,7 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const multer = require('multer');
 const pool = require("./db");
 const fcmService = require('./services/fcm');
@@ -2152,28 +2153,27 @@ app.get("/sentry-test", (req, res) => {
 app.post('/upload', adminLimiter, requireAdmin, upload.single('image'), async (req, res) => {
   try {
     if (!r2Service.isConfigured()) {
-      return apiResponse.errors.serverError(res, 'Image storage not configured');
+      return res.status(500).json({ ok: false, error: 'R2 not configured' });
     }
 
     if (!req.file) {
-      return apiResponse.errors.badRequest(res, 'No image file provided');
+      return res.status(400).json({ ok: false, error: 'file missing' });
     }
 
+    const ext = (req.file.originalname.split('.').pop() || 'bin').toLowerCase();
     const folder = req.body.folder || 'uploads';
+    const key = `${folder}/${Date.now()}-${crypto.randomBytes(8).toString('hex')}.${ext}`;
+
     const result = await r2Service.uploadFile(
       req.file.buffer,
-      req.file.originalname,
-      req.file.mimetype,
-      folder
+      key,
+      req.file.mimetype
     );
 
-    return apiResponse.success(res, {
-      url: result.url,
-      key: result.key,
-    }, 201);
+    return res.json({ ok: true, key: result.key, url: result.url });
   } catch (err) {
-    console.error('POST /upload error:', err);
-    return apiResponse.errors.serverError(res, 'Failed to upload image');
+    console.error('UPLOAD_ERR:', err);
+    return res.status(500).json({ ok: false, error: 'upload failed', detail: String(err?.name || err) });
   }
 });
 

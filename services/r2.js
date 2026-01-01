@@ -42,14 +42,11 @@ function generateFileName(originalName, folder = 'uploads') {
 /**
  * Upload a file to R2
  * @param {Buffer} fileBuffer - File content as buffer
- * @param {string} fileName - File name
+ * @param {string} key - S3 key (path/filename)
  * @param {string} contentType - MIME type
- * @param {string} folder - Folder to upload to
  * @returns {Promise<{url: string, key: string}>}
  */
-async function uploadFile(fileBuffer, fileName, contentType, folder = 'uploads') {
-    const key = generateFileName(fileName, folder);
-    
+async function uploadFile(fileBuffer, key, contentType) {
     const command = new PutObjectCommand({
         Bucket: R2_BUCKET_NAME,
         Key: key,

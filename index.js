@@ -155,9 +155,6 @@ app.use(cors({
   optionsSuccessStatus: 200, // For legacy browser support
 }));
 
-// Handle preflight requests explicitly for all routes
-app.options('/{*path}', cors());
-
 // Security middleware (after CORS)
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },

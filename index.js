@@ -112,10 +112,7 @@ function generateRefreshToken(user) {
 // Trust proxy (nginx) for rate limiting to work correctly
 app.set('trust proxy', 1);
 
-// Security middleware
-app.use(helmet());
-
-// CORS configuration
+// CORS configuration (must come before helmet for preflight to work)
 const allowedOrigins = [
   // Development
   'http://localhost:3001', // Admin panel
@@ -133,6 +130,7 @@ const allowedOrigins = [
   'http://www.mrgcar.com',
 ];
 
+// CORS middleware
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, etc.)
@@ -153,6 +151,15 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'x-admin-token'],
+  optionsSuccessStatus: 200, // For legacy browser support
+}));
+
+// Handle preflight requests explicitly
+app.options('*', cors());
+
+// Security middleware (after CORS)
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
 }));
 
 app.use(express.json({ limit: '10mb' }));

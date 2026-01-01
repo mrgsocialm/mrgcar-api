@@ -8,8 +8,23 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
 const pool = require("./db");
 const fcmService = require('./services/fcm');
+const r2Service = require('./services/r2');
+
+// Multer configuration for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only images are allowed'), false);
+    }
+  },
+});
 
 // Security & validation modules (require after npm install)
 let helmet, publicLimiter, adminLimiter, authLimiter, validate, createCarSchema, updateCarSchema, listCarsQuerySchema;
@@ -2120,6 +2135,96 @@ app.use((err, req, res, _next) => {
 // Sentry Test Endpoint (only for testing - triggers a test error)
 app.get("/sentry-test", (req, res) => {
   throw new Error("Sentry test error - this is intentional!");
+});
+
+// =============================================================================
+// IMAGE UPLOAD ENDPOINTS (R2)
+// =============================================================================
+
+// POST /upload - Direct file upload (Admin only)
+app.post('/upload', adminLimiter, requireAdmin, upload.single('image'), async (req, res) => {
+  try {
+    if (!r2Service.isConfigured()) {
+      return apiResponse.errors.serverError(res, 'Image storage not configured');
+    }
+
+    if (!req.file) {
+      return apiResponse.errors.badRequest(res, 'No image file provided');
+    }
+
+    const folder = req.body.folder || 'uploads';
+    const result = await r2Service.uploadFile(
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype,
+      folder
+    );
+
+    return apiResponse.success(res, {
+      url: result.url,
+      key: result.key,
+    }, 201);
+  } catch (err) {
+    console.error('POST /upload error:', err);
+    return apiResponse.errors.serverError(res, 'Failed to upload image');
+  }
+});
+
+// POST /upload/presigned - Get presigned URL for client-side upload (Admin only)
+app.post('/upload/presigned', adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    if (!r2Service.isConfigured()) {
+      return apiResponse.errors.serverError(res, 'Image storage not configured');
+    }
+
+    const { fileName, contentType, folder } = req.body;
+
+    if (!fileName || !contentType) {
+      return apiResponse.errors.badRequest(res, 'fileName and contentType are required');
+    }
+
+    const result = await r2Service.getPresignedUploadUrl(
+      fileName,
+      contentType,
+      folder || 'uploads'
+    );
+
+    return apiResponse.success(res, result);
+  } catch (err) {
+    console.error('POST /upload/presigned error:', err);
+    return apiResponse.errors.serverError(res, 'Failed to generate upload URL');
+  }
+});
+
+// DELETE /upload/:key - Delete an uploaded file (Admin only)
+app.delete('/upload/*', adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    if (!r2Service.isConfigured()) {
+      return apiResponse.errors.serverError(res, 'Image storage not configured');
+    }
+
+    const key = req.params[0]; // Get the full path after /upload/
+
+    if (!key) {
+      return apiResponse.errors.badRequest(res, 'File key is required');
+    }
+
+    await r2Service.deleteFile(key);
+
+    return apiResponse.success(res, { deleted: key });
+  } catch (err) {
+    console.error('DELETE /upload error:', err);
+    return apiResponse.errors.serverError(res, 'Failed to delete image');
+  }
+});
+
+// GET /upload/status - Check R2 configuration status
+app.get('/upload/status', adminLimiter, requireAdmin, (req, res) => {
+  return apiResponse.success(res, {
+    configured: r2Service.isConfigured(),
+    bucket: r2Service.R2_BUCKET_NAME,
+    publicUrl: r2Service.R2_PUBLIC_URL,
+  });
 });
 
 app.listen(PORT, '0.0.0.0', () => {

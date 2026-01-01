@@ -2197,13 +2197,13 @@ app.post('/upload/presigned', adminLimiter, requireAdmin, async (req, res) => {
 });
 
 // DELETE /upload/:key - Delete an uploaded file (Admin only)
-app.delete('/upload/*', adminLimiter, requireAdmin, async (req, res) => {
+app.delete('/upload/:key(*)', adminLimiter, requireAdmin, async (req, res) => {
   try {
     if (!r2Service.isConfigured()) {
       return apiResponse.errors.serverError(res, 'Image storage not configured');
     }
 
-    const key = req.params[0]; // Get the full path after /upload/
+    const key = req.params.key; // Get the full path after /upload/
 
     if (!key) {
       return apiResponse.errors.badRequest(res, 'File key is required');

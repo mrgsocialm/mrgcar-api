@@ -53,21 +53,31 @@ describe('API Smoke Tests', () => {
         });
     });
 
-    // These tests will fail until auth routes are extracted to app.js
-    // Uncomment after extracting auth routes
-    /*
     describe('Auth Routes', () => {
-      test('POST /auth/login should respond', async () => {
-        const res = await request(app)
-          .post('/auth/login')
-          .send({ email: 'test@test.com', password: 'test' });
-        expect([200, 400, 401, 500]).toContain(res.statusCode);
-      });
-  
-      test('GET /auth/me without token should return 401', async () => {
-        const res = await request(app).get('/auth/me');
-        expect(res.statusCode).toBe(401);
-      });
+        test('POST /auth/login with invalid credentials should respond', async () => {
+            const res = await request(app)
+                .post('/auth/login')
+                .send({ email: 'test@test.com', password: 'test' });
+            expect([401, 500]).toContain(res.statusCode);
+        });
+
+        test('GET /auth/me without token should return 401', async () => {
+            const res = await request(app).get('/auth/me');
+            expect(res.statusCode).toBe(401);
+        });
     });
-    */
+
+    describe('Admin Routes', () => {
+        test('POST /admin/login with invalid credentials should respond', async () => {
+            const res = await request(app)
+                .post('/admin/login')
+                .send({ email: 'admin@test.com', password: 'wrong' });
+            expect([401, 500]).toContain(res.statusCode);
+        });
+
+        test('GET /admin/me without token should return 401', async () => {
+            const res = await request(app).get('/admin/me');
+            expect(res.statusCode).toBe(401);
+        });
+    });
 });

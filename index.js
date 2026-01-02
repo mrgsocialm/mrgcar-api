@@ -115,32 +115,28 @@ const allowedOrigins = [
   'http://www.mrgcar.com',
 ];
 
-// CORS middleware
-app.use(cors({
+// CORS configuration
+const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
-
-    // Allow localhost for development
     if (origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('10.0.2.2')) {
       return callback(null, true);
     }
-
-    // Check allowed origins
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-
     callback(new Error('CORS policy violation'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'x-admin-token'],
-  optionsSuccessStatus: 200, // For legacy browser support
-}));
+  optionsSuccessStatus: 200,
+};
+
+app.use(cors(corsOptions));
 
 // Handle preflight requests for all routes (Express 5 syntax)
-app.options(/.*/, cors());
+app.options(/.*/, cors(corsOptions));
 
 // Security middleware (after CORS)
 app.use(helmet({
@@ -275,74 +271,13 @@ const carsRouter = createCarsRouter({
 app.use('/cars', carsRouter);
 
 // ---- Helper Functions ----
-// Helper: DB row → response (body_type → bodyType) - DEPRECATED, moved to utils/helpers.js
-function mapCarRow(row) {
-  const { body_type, created_at, updated_at, show_in_slider, slider_title, slider_subtitle, slider_order, ...rest } = row;
-  return {
-    ...rest,
-    bodyType: body_type,
-    createdAt: created_at,
-    updatedAt: updated_at,
-    showInSlider: show_in_slider || false,
-    sliderTitle: slider_title || null,
-    sliderSubtitle: slider_subtitle || null,
-    sliderOrder: slider_order || 0,
-  };
-}
-
-// Helper: Format timestamp to relative time (e.g., "2 saat önce")
-function formatTimeAgo(date) {
-  if (!date) return 'Az önce';
-
-  const now = new Date();
-  const past = new Date(date);
-  const diffMs = now - past;
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return 'Az önce';
-  if (diffMins < 60) return `${diffMins} dk önce`;
-  if (diffHours < 24) return `${diffHours} saat önce`;
-  if (diffDays < 7) return `${diffDays} gün önce`;
-
-  return past.toLocaleDateString('tr-TR');
-}
-
-// Helper: Cars DB row -> response
-function mapCarRow(row) {
-  return {
-    id: row.id,
-    make: row.make,
-    model: row.model,
-    variant: row.variant || '',
-    bodyType: row.body_type || '',
-    status: row.status,
-    data: row.data || {},
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-// Helper: Forum post DB row → response
-function mapForumPost(row) {
-  return {
-    id: row.id,
-    userName: row.user_name,
-    title: row.title,
-    description: row.description,
-    content: row.content,
-    category: row.category,
-    categoryId: row.category_id,
-    carBrand: row.car_brand,
-    carModel: row.car_model,
-    likes: row.likes,
-    replies: row.replies,
-    viewCount: row.view_count,
-    time: formatTimeAgo(row.created_at),
-    isPinned: row.is_pinned,
-  };
-}
+// Helper functions moved to utils/helpers.js but kept here temporarily for routes not yet refactored
+const helpers = require('./utils/helpers');
+const formatTimeAgo = helpers.formatTimeAgo;
+const mapCarRow = helpers.mapCarRow;
+const mapForumPost = helpers.mapForumPost;
+const mapNewsRow = helpers.mapNewsRow;
+const mapSliderRow = helpers.mapSliderRow;
 
 // ---- News ---- (PostgreSQL)
 app.get('/news', publicLimiter, async (req, res) => {

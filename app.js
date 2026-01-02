@@ -108,7 +108,8 @@ const allowedOrigins = [
     'http://www.mrgcar.com',
 ];
 
-app.use(cors({
+// CORS configuration
+const corsOptions = {
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);
         if (origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('10.0.2.2')) {
@@ -123,9 +124,12 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'x-admin-token'],
     optionsSuccessStatus: 200,
-}));
+};
 
-app.options(/.*/, cors());
+app.use(cors(corsOptions));
+
+// Handle preflight requests for all routes (Express 5 syntax)
+app.options(/.*/, cors(corsOptions));
 
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -198,6 +202,40 @@ const carsRouter = createCarsRouter({
 });
 app.use('/cars', carsRouter);
 
+// Email service for password reset
+let emailService;
+try {
+    emailService = require('./services/email');
+} catch (e) {
+    console.warn('⚠️  Email service not available');
+    emailService = {
+        sendPasswordResetEmail: async () => ({ success: false, error: 'Email service not configured' })
+    };
+}
+
+// Import and mount auth router
+const createAuthRouter = require('./routes/auth');
+const authRouter = createAuthRouter({
+    authLimiter,
+    bcrypt,
+    jwt,
+    JWT_SECRET: JWT_SECRET || 'test-secret',
+    JWT_REFRESH_SECRET,
+    generateAccessToken,
+    generateRefreshToken,
+    emailService,
+});
+app.use('/auth', authRouter);
+
+// Import and mount admin router
+const createAdminRouter = require('./routes/admin');
+const adminRouter = createAdminRouter({
+    bcrypt,
+    generateAdminToken,
+    requireAdmin,
+});
+app.use('/admin', adminRouter);
+
 // Export app and dependencies for other modules and tests
 module.exports = {
     app,
@@ -220,3 +258,4 @@ module.exports = {
     JWT_REFRESH_SECRET,
     ADMIN_JWT_SECRET,
 };
+

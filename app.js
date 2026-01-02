@@ -17,6 +17,9 @@ const fcmService = require('./services/fcm');
 // Security & validation modules
 let helmet, publicLimiter, adminLimiter, authLimiter, validate, createCarSchema, updateCarSchema, listCarsQuerySchema;
 let createForumPostSchema;
+let createNewsSchema, updateNewsSchema;
+let createSliderSchema, updateSliderSchema;
+let sendNotificationSchema;
 let apiResponse;
 
 try {
@@ -58,6 +61,11 @@ try {
         }
     };
     createForumPostSchema = {};
+    createNewsSchema = {};
+    updateNewsSchema = {};
+    createSliderSchema = {};
+    updateSliderSchema = {};
+    sendNotificationSchema = {};
     createNewsSchema = {};
     updateNewsSchema = {};
     createSliderSchema = {};

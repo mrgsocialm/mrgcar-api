@@ -183,6 +183,10 @@ app.use(helmet({
 
 app.use(express.json({ limit: '10mb' }));
 
+// Request logging middleware (after JSON parsing, before routes)
+const requestLogger = require('./middleware/requestLogger');
+app.use(requestLogger);
+
 // Admin JWT Secret
 const ADMIN_JWT_SECRET = JWT_SECRET || 'test-secret';
 const ADMIN_TOKEN_EXPIRY = '12h';

@@ -235,8 +235,32 @@ function requireAdminJWT(req, res, next) {
 const requireAdmin = requireAdminJWT;
 
 // Health check
-app.get('/', (req, res) => {
-    res.json({ status: 'ok', message: 'MRGCAR API ayakta' });
+app.get('/', async (req, res) => {
+    const health = {
+        status: 'ok',
+        message: 'MRGCAR API ayakta',
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+    };
+
+    // Add version/commit if available
+    if (process.env.GIT_SHA) {
+        health.version = process.env.GIT_SHA;
+    } else if (process.env.APP_VERSION) {
+        health.version = process.env.APP_VERSION;
+    }
+
+    // Check database connection
+    try {
+        await pool.query('SELECT 1');
+        health.db = 'connected';
+    } catch (err) {
+        health.db = 'error';
+        health.status = 'degraded';
+        return res.status(503).json(health);
+    }
+
+    res.json(health);
 });
 
 // Import and mount cars router

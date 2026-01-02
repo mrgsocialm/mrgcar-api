@@ -62,6 +62,38 @@ try {
 
 const app = express();
 
+// Trust proxy FIRST
+app.set('trust proxy', 1);
+
+// Handle ALL preflight requests IMMEDIATELY - before ANY other middleware
+app.use((req, res, next) => {
+    if (req.method === 'OPTIONS') {
+        const origin = req.headers.origin;
+        // Allow all mrgcar.com subdomains, localhost, and common dev origins
+        const isAllowed = !origin || 
+            origin.includes('localhost') || 
+            origin.includes('127.0.0.1') || 
+            origin.includes('10.0.2.2') ||
+            origin.includes('192.168.') ||
+            origin.includes('172.') ||
+            origin.endsWith('.mrgcar.com') ||
+            origin === 'https://mrgcar.com' ||
+            origin === 'https://admin.mrgcar.com' ||
+            origin === 'https://api.mrgcar.com';
+        
+        if (isAllowed) {
+            res.header('Access-Control-Allow-Origin', origin || '*');
+            res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+            res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, x-admin-token, X-Requested-With');
+            res.header('Access-Control-Allow-Credentials', 'true');
+            res.header('Access-Control-Max-Age', '86400');
+            return res.sendStatus(200);
+        }
+        return res.sendStatus(403);
+    }
+    next();
+});
+
 // JWT Configuration
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET && process.env.NODE_ENV !== 'test') {
@@ -88,33 +120,6 @@ function generateRefreshToken(user) {
         { expiresIn: REFRESH_TOKEN_EXPIRY }
     );
 }
-
-// Trust proxy
-app.set('trust proxy', 1);
-
-// Handle preflight requests FIRST, before CORS middleware
-app.options('*', (req, res) => {
-    const origin = req.headers.origin;
-    // Allow all mrgcar.com subdomains and localhost
-    if (!origin || 
-        origin.includes('localhost') || 
-        origin.includes('127.0.0.1') || 
-        origin.includes('10.0.2.2') ||
-        origin.includes('192.168.') ||
-        origin.includes('172.') ||
-        origin.endsWith('.mrgcar.com') ||
-        origin === 'https://mrgcar.com' ||
-        origin === 'https://admin.mrgcar.com' ||
-        origin === 'https://api.mrgcar.com') {
-        res.header('Access-Control-Allow-Origin', origin || '*');
-        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, x-admin-token, X-Requested-With');
-        res.header('Access-Control-Allow-Credentials', 'true');
-        res.header('Access-Control-Max-Age', '86400');
-        return res.sendStatus(200);
-    }
-    res.sendStatus(403);
-});
 
 // CORS configuration
 const allowedOrigins = [
@@ -167,7 +172,7 @@ const corsOptions = {
     maxAge: 86400, // 24 hours
 };
 
-// CORS must be applied before helmet
+// CORS middleware - handles actual requests (preflight already handled above)
 app.use(cors(corsOptions));
 
 app.use(helmet({

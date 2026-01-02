@@ -118,13 +118,26 @@ const allowedOrigins = [
 // CORS configuration
 const corsOptions = {
   origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
+
+    // Development origins
     if (origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('10.0.2.2')) {
       return callback(null, true);
     }
-    if (allowedOrigins.includes(origin)) {
+
+    // Explicitly check allowed origins
+    const isAllowed = allowedOrigins.some(ao => origin === ao || origin.startsWith(ao));
+    if (isAllowed) {
       return callback(null, true);
     }
+
+    // Fallback: If it's a mrgcar.com subdomain, allow it for now to fix production
+    if (origin.endsWith('.mrgcar.com') || origin === 'https://mrgcar.com') {
+      return callback(null, true);
+    }
+
+    console.warn(`CORS blocked for origin: ${origin}`);
     callback(new Error('CORS policy violation'));
   },
   credentials: true,
@@ -133,9 +146,10 @@ const corsOptions = {
   optionsSuccessStatus: 200,
 };
 
+// Apply CORS to all requests
 app.use(cors(corsOptions));
 
-// Handle preflight requests for all routes (Express 5 syntax)
+// Explicitly handle all OPTIONS requests before any other routes
 app.options(/.*/, cors(corsOptions));
 
 // Security middleware (after CORS)

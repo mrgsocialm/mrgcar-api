@@ -115,9 +115,13 @@ const corsOptions = {
         if (origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('10.0.2.2')) {
             return callback(null, true);
         }
-        if (allowedOrigins.includes(origin)) {
+
+        const isAllowed = allowedOrigins.some(ao => origin === ao || origin.startsWith(ao));
+        if (isAllowed || origin.endsWith('.mrgcar.com') || origin === 'https://mrgcar.com') {
             return callback(null, true);
         }
+
+        console.warn(`CORS blocked for origin: ${origin}`);
         callback(new Error('CORS policy violation'));
     },
     credentials: true,
@@ -128,7 +132,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Handle preflight requests for all routes (Express 5 syntax)
+// Explicitly handle all OPTIONS requests
 app.options(/.*/, cors(corsOptions));
 
 app.use(helmet({

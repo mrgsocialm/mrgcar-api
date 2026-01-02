@@ -5,7 +5,7 @@ const { requireAdmin } = require('../middleware/auth');
 // Factory function that creates router with injected middleware
 function createNewsRouter(middlewares) {
     const router = express.Router();
-    const { publicLimiter, adminLimiter, apiResponse } = middlewares;
+    const { publicLimiter, adminLimiter, validate, createNewsSchema, updateNewsSchema, apiResponse } = middlewares;
 
     // GET /news - List all news
     router.get('/', publicLimiter, async (req, res) => {
@@ -39,13 +39,9 @@ function createNewsRouter(middlewares) {
     });
 
     // POST /news - Create news (admin only)
-    router.post('/', adminLimiter, requireAdmin, async (req, res) => {
+    router.post('/', adminLimiter, requireAdmin, validate(createNewsSchema), async (req, res) => {
         try {
-            const { title, description, content, category, author, image } = req.body;
-
-            if (!title || !description || !content || !author) {
-                return apiResponse.errors.badRequest(res, 'Başlık, açıklama, içerik ve yazar zorunludur');
-            }
+            const { title, description, content, category, author, image } = req.validatedBody || req.body;
 
             const { rows } = await pool.query(
                 `INSERT INTO news (title, description, content, category, author, image)
@@ -62,9 +58,9 @@ function createNewsRouter(middlewares) {
     });
 
     // PATCH /news/:id - Update news (admin only)
-    router.patch('/:id', adminLimiter, requireAdmin, async (req, res) => {
+    router.patch('/:id', adminLimiter, requireAdmin, validate(updateNewsSchema), async (req, res) => {
         try {
-            const { title, description, content, category, author, image } = req.body;
+            const { title, description, content, category, author, image } = req.validatedBody || req.body;
 
             const updates = [];
             const values = [];

@@ -6,7 +6,7 @@ const fcmService = require('../services/fcm');
 // Factory function that creates router with injected middleware
 function createNotificationsRouter(middlewares) {
     const router = express.Router();
-    const { publicLimiter, adminLimiter, apiResponse } = middlewares;
+    const { publicLimiter, adminLimiter, validate, sendNotificationSchema, apiResponse } = middlewares;
 
     // GET /notifications - List all notifications (admin only)
     router.get('/', adminLimiter, requireAdmin, async (req, res) => {
@@ -20,13 +20,9 @@ function createNotificationsRouter(middlewares) {
     });
 
     // POST /notifications/send - Send push notification (admin only)
-    router.post('/send', adminLimiter, requireAdmin, async (req, res) => {
+    router.post('/send', adminLimiter, requireAdmin, validate(sendNotificationSchema), async (req, res) => {
         try {
-            const { title, body, topic } = req.body;
-
-            if (!title || !body) {
-                return apiResponse.errors.badRequest(res, 'Başlık ve mesaj zorunludur');
-            }
+            const { title, body, topic } = req.validatedBody || req.body;
 
             // Use FCM service to send notification
             const targetTopic = topic || 'all';

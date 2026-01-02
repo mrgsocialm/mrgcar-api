@@ -5,7 +5,7 @@ const { requireAdmin } = require('../middleware/auth');
 // Factory function that creates router with injected middleware
 function createSlidersRouter(middlewares) {
     const router = express.Router();
-    const { publicLimiter, adminLimiter, apiResponse } = middlewares;
+    const { publicLimiter, adminLimiter, validate, createSliderSchema, updateSliderSchema, apiResponse } = middlewares;
 
     // GET /sliders - List all sliders
     router.get('/', publicLimiter, async (req, res) => {
@@ -40,13 +40,9 @@ function createSlidersRouter(middlewares) {
     });
 
     // POST /sliders - Create slider (admin only)
-    router.post('/', adminLimiter, requireAdmin, async (req, res) => {
+    router.post('/', adminLimiter, requireAdmin, validate(createSliderSchema), async (req, res) => {
         try {
-            const { title, subtitle, imageUrl, linkType, linkId, linkUrl, isActive, order } = req.body;
-
-            if (!title || !imageUrl) {
-                return apiResponse.errors.badRequest(res, 'Başlık ve görsel URL zorunludur');
-            }
+            const { title, subtitle, imageUrl, linkType, linkId, linkUrl, isActive, order } = req.validatedBody || req.body;
 
             const { rows } = await pool.query(
                 `INSERT INTO sliders (title, subtitle, image_url, link_type, link_id, link_url, is_active, "order")
@@ -63,9 +59,9 @@ function createSlidersRouter(middlewares) {
     });
 
     // PUT /sliders/:id - Update slider (admin only)
-    router.put('/:id', adminLimiter, requireAdmin, async (req, res) => {
+    router.put('/:id', adminLimiter, requireAdmin, validate(updateSliderSchema), async (req, res) => {
         try {
-            const { title, subtitle, imageUrl, linkType, linkId, linkUrl, isActive, order } = req.body;
+            const { title, subtitle, imageUrl, linkType, linkId, linkUrl, isActive, order } = req.validatedBody || req.body;
 
             const updates = [];
             const values = [];

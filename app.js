@@ -58,6 +58,11 @@ try {
         }
     };
     createForumPostSchema = {};
+    createNewsSchema = {};
+    updateNewsSchema = {};
+    createSliderSchema = {};
+    updateSliderSchema = {};
+    sendNotificationSchema = {};
 }
 
 const app = express();
@@ -335,6 +340,9 @@ const createSlidersRouter = require('./routes/sliders');
 const slidersRouter = createSlidersRouter({
     publicLimiter,
     adminLimiter,
+    validate,
+    createSliderSchema,
+    updateSliderSchema,
     apiResponse,
 });
 app.use('/sliders', slidersRouter);
@@ -344,6 +352,8 @@ const createNotificationsRouter = require('./routes/notifications');
 const notificationsRouter = createNotificationsRouter({
     publicLimiter,
     adminLimiter,
+    validate,
+    sendNotificationSchema,
     apiResponse,
 });
 app.use('/notifications', notificationsRouter);

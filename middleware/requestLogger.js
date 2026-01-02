@@ -59,6 +59,17 @@ function requestLogger(req, res, next) {
                         res.statusCode >= 400 ? 'WARN' : 'INFO';
         
         console.log(`[${new Date().toISOString()}] ${logLevel} ${requestId} ${req.method} ${req.path} ${res.statusCode} ${logEnd.duration}`);
+        
+        // Set request-id in Sentry context if available
+        if (typeof Sentry !== 'undefined' && Sentry.setTag) {
+            Sentry.setTag('request_id', requestId);
+            Sentry.setContext('request', {
+                method: req.method,
+                path: req.path,
+                status: res.statusCode,
+                duration: `${duration}ms`,
+            });
+        }
     });
     
     next();

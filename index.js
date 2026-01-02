@@ -8,23 +8,8 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const multer = require('multer');
 const pool = require("./db");
 const fcmService = require('./services/fcm');
-const r2Service = require('./services/r2');
-
-// Multer configuration for file uploads
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only images are allowed'), false);
-    }
-  },
-});
 
 // Security & validation modules (require after npm install)
 let helmet, publicLimiter, adminLimiter, authLimiter, validate, createCarSchema, updateCarSchema, listCarsQuerySchema;
@@ -2144,94 +2129,7 @@ app.get("/sentry-test", (req, res) => {
   throw new Error("Sentry test error - this is intentional!");
 });
 
-// =============================================================================
-// IMAGE UPLOAD ENDPOINTS (R2)
-// =============================================================================
 
-// POST /upload - Direct file upload (Admin only)
-app.post('/upload', adminLimiter, requireAdmin, upload.single('image'), async (req, res) => {
-  try {
-    if (!r2Service.isConfigured()) {
-      return res.status(500).json({ ok: false, error: 'R2 not configured' });
-    }
-
-    if (!req.file) {
-      return res.status(400).json({ ok: false, error: 'file missing' });
-    }
-
-    const ext = (req.file.originalname.split('.').pop() || 'bin').toLowerCase();
-    const folder = req.body.folder || 'uploads';
-    const key = `${folder}/${Date.now()}-${crypto.randomBytes(8).toString('hex')}.${ext}`;
-
-    const result = await r2Service.uploadFile(
-      req.file.buffer,
-      key,
-      req.file.mimetype
-    );
-
-    return res.json({ ok: true, key: result.key, url: result.url });
-  } catch (err) {
-    console.error('UPLOAD_ERR:', err);
-    return res.status(500).json({ ok: false, error: 'upload failed', detail: String(err?.name || err) });
-  }
-});
-
-// POST /upload/presigned - Get presigned URL for client-side upload (Admin only)
-app.post('/upload/presigned', adminLimiter, requireAdmin, async (req, res) => {
-  try {
-    if (!r2Service.isConfigured()) {
-      return apiResponse.errors.serverError(res, 'Image storage not configured');
-    }
-
-    const { fileName, contentType, folder } = req.body;
-
-    if (!fileName || !contentType) {
-      return apiResponse.errors.badRequest(res, 'fileName and contentType are required');
-    }
-
-    const result = await r2Service.getPresignedUploadUrl(
-      fileName,
-      contentType,
-      folder || 'uploads'
-    );
-
-    return apiResponse.success(res, result);
-  } catch (err) {
-    console.error('POST /upload/presigned error:', err);
-    return apiResponse.errors.serverError(res, 'Failed to generate upload URL');
-  }
-});
-
-// DELETE /upload/:folder/:filename - Delete an uploaded file (Admin only)
-app.delete('/upload/:folder/:filename', adminLimiter, requireAdmin, async (req, res) => {
-  try {
-    if (!r2Service.isConfigured()) {
-      return apiResponse.errors.serverError(res, 'Image storage not configured');
-    }
-
-    const key = `${req.params.folder}/${req.params.filename}`; // Reconstruct the path
-
-    if (!key) {
-      return apiResponse.errors.badRequest(res, 'File key is required');
-    }
-
-    await r2Service.deleteFile(key);
-
-    return apiResponse.success(res, { deleted: key });
-  } catch (err) {
-    console.error('DELETE /upload error:', err);
-    return apiResponse.errors.serverError(res, 'Failed to delete image');
-  }
-});
-
-// GET /upload/status - Check R2 configuration status
-app.get('/upload/status', adminLimiter, requireAdmin, (req, res) => {
-  return apiResponse.success(res, {
-    configured: r2Service.isConfigured(),
-    bucket: r2Service.R2_BUCKET_NAME,
-    publicUrl: r2Service.R2_PUBLIC_URL,
-  });
-});
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`MRGCAR API http://0.0.0.0:${PORT} üzerinde çalışıyor`);

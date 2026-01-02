@@ -92,6 +92,30 @@ function generateRefreshToken(user) {
 // Trust proxy
 app.set('trust proxy', 1);
 
+// Handle preflight requests FIRST, before CORS middleware
+app.options('*', (req, res) => {
+    const origin = req.headers.origin;
+    // Allow all mrgcar.com subdomains and localhost
+    if (!origin || 
+        origin.includes('localhost') || 
+        origin.includes('127.0.0.1') || 
+        origin.includes('10.0.2.2') ||
+        origin.includes('192.168.') ||
+        origin.includes('172.') ||
+        origin.endsWith('.mrgcar.com') ||
+        origin === 'https://mrgcar.com' ||
+        origin === 'https://admin.mrgcar.com' ||
+        origin === 'https://api.mrgcar.com') {
+        res.header('Access-Control-Allow-Origin', origin || '*');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, x-admin-token, X-Requested-With');
+        res.header('Access-Control-Allow-Credentials', 'true');
+        res.header('Access-Control-Max-Age', '86400');
+        return res.sendStatus(200);
+    }
+    res.sendStatus(403);
+});
+
 // CORS configuration
 const allowedOrigins = [
     'http://localhost:3001',
@@ -111,11 +135,22 @@ const allowedOrigins = [
 // CORS configuration
 const corsOptions = {
     origin: (origin, callback) => {
-        if (!origin) return callback(null, true);
-        if (origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('10.0.2.2')) {
+        // Allow requests with no origin (like mobile apps, Postman, etc.)
+        if (!origin) {
             return callback(null, true);
         }
 
+        // Allow localhost, 127.0.0.1, and Android emulator (10.0.2.2)
+        if (origin.includes('localhost') || 
+            origin.includes('127.0.0.1') || 
+            origin.includes('10.0.2.2') ||
+            origin.includes('192.168.') ||
+            origin.includes('172.') ||
+            origin.includes('192.168.')) {
+            return callback(null, true);
+        }
+
+        // Check against allowed origins
         const isAllowed = allowedOrigins.some(ao => origin === ao || origin.startsWith(ao));
         if (isAllowed || origin.endsWith('.mrgcar.com') || origin === 'https://mrgcar.com') {
             return callback(null, true);
@@ -126,17 +161,18 @@ const corsOptions = {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'x-admin-token'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'x-admin-token', 'X-Requested-With'],
+    exposedHeaders: ['Content-Type', 'Authorization'],
     optionsSuccessStatus: 200,
+    maxAge: 86400, // 24 hours
 };
 
+// CORS must be applied before helmet
 app.use(cors(corsOptions));
-
-// Explicitly handle all OPTIONS requests
-app.options(/.*/, cors(corsOptions));
 
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: false, // Disable CSP for API
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -239,6 +275,44 @@ const adminRouter = createAdminRouter({
     requireAdmin,
 });
 app.use('/admin', adminRouter);
+
+// Import and mount news router
+const createNewsRouter = require('./routes/news');
+const newsRouter = createNewsRouter({
+    publicLimiter,
+    adminLimiter,
+    apiResponse,
+});
+app.use('/news', newsRouter);
+
+// Import and mount forum router
+const createForumRouter = require('./routes/forum');
+const forumRouter = createForumRouter({
+    publicLimiter,
+    adminLimiter,
+    validate,
+    createForumPostSchema,
+    apiResponse,
+});
+app.use('/forum', forumRouter);
+
+// Import and mount sliders router
+const createSlidersRouter = require('./routes/sliders');
+const slidersRouter = createSlidersRouter({
+    publicLimiter,
+    adminLimiter,
+    apiResponse,
+});
+app.use('/sliders', slidersRouter);
+
+// Import and mount notifications router
+const createNotificationsRouter = require('./routes/notifications');
+const notificationsRouter = createNotificationsRouter({
+    publicLimiter,
+    adminLimiter,
+    apiResponse,
+});
+app.use('/notifications', notificationsRouter);
 
 // Export app and dependencies for other modules and tests
 module.exports = {

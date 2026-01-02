@@ -178,6 +178,7 @@ app.use(cors(corsOptions));
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     contentSecurityPolicy: false, // Disable CSP for API
+    crossOriginEmbedderPolicy: false, // Disable for API
 }));
 
 app.use(express.json({ limit: '10mb' }));

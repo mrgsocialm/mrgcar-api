@@ -26,20 +26,22 @@ function createNotificationsRouter(middlewares) {
 
             // Use FCM service to send notification
             const targetTopic = topic || 'all';
-            const result = await fcmService.sendToTopic(targetTopic, {
+            const result = await fcmService.sendToTopic(
+                targetTopic,
                 title,
                 body,
-                data: {
+                {
                     type: 'notification',
                     title,
                     body,
-                },
-            });
+                }
+            );
 
             if (result.success) {
                 return apiResponse.success(res, {
                     message: 'Bildirim gönderildi',
                     sentCount: result.count || 0,
+                    messageId: result.messageId,
                     topic: targetTopic,
                 }, 201);
             } else {
@@ -47,7 +49,7 @@ function createNotificationsRouter(middlewares) {
             }
         } catch (err) {
             console.error('POST /notifications/send error:', err);
-            return apiResponse.errors.serverError(res, 'Bildirim gönderilirken hata oluştu');
+            return apiResponse.errors.serverError(res, 'Bildirim gönderilirken hata oluştu: ' + (err.message || 'Bilinmeyen hata'));
         }
     });
 

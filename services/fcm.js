@@ -118,13 +118,21 @@ async function sendToTopic(topic, title, body, data = {}) {
     }
 
     try {
+        // Convert data object to string format (FCM requires string values)
+        const dataPayload = {};
+        if (data && typeof data === 'object') {
+            for (const [key, value] of Object.entries(data)) {
+                dataPayload[key] = typeof value === 'string' ? value : JSON.stringify(value);
+            }
+        }
+
         const message = {
             topic: topic,
             notification: {
                 title: title,
                 body: body,
             },
-            data: data,
+            data: dataPayload,
             android: {
                 priority: 'high',
                 notification: {

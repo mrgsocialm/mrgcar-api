@@ -17,15 +17,19 @@ function createUsersRouter(middlewares) {
                     name, 
                     created_at,
                     updated_at,
-                    COALESCE(is_active, true) as is_active,
-                    COALESCE(role, 'user') as role
+                    COALESCE(status, 'active') as status,
+                    COALESCE(role, 'user') as role,
+                    COALESCE(status != 'banned', true) as is_active,
+                    last_seen,
+                    avatar_url
                 FROM users 
                 ORDER BY created_at DESC`
             );
             return apiResponse.success(res, rows);
         } catch (err) {
             console.error('GET /users error:', err);
-            return apiResponse.errors.serverError(res, 'Kullanıcılar yüklenirken hata oluştu');
+            console.error('Error details:', err.message, err.stack);
+            return apiResponse.errors.serverError(res, `Kullanıcılar yüklenirken hata oluştu: ${err.message}`);
         }
     });
 
@@ -39,8 +43,11 @@ function createUsersRouter(middlewares) {
                     name, 
                     created_at,
                     updated_at,
-                    COALESCE(is_active, true) as is_active,
-                    COALESCE(role, 'user') as role
+                    COALESCE(status, 'active') as status,
+                    COALESCE(role, 'user') as role,
+                    COALESCE(status != 'banned', true) as is_active,
+                    last_seen,
+                    avatar_url
                 FROM users 
                 WHERE id = $1`,
                 [req.params.id]
@@ -52,7 +59,8 @@ function createUsersRouter(middlewares) {
             }
         } catch (err) {
             console.error('GET /users/:id error:', err);
-            return apiResponse.errors.serverError(res, 'Kullanıcı yüklenirken hata oluştu');
+            console.error('Error details:', err.message, err.stack);
+            return apiResponse.errors.serverError(res, `Kullanıcı yüklenirken hata oluştu: ${err.message}`);
         }
     });
 

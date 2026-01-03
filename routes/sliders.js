@@ -184,34 +184,112 @@ function createSlidersRouter(middlewares) {
                 }
             } else if (contentType === 'news' && contentId) {
                 // Mark news for slider - create a slider entry linking to news
+                console.log('Adding news to slider:', { contentId, sliderTitle, sliderSubtitle, sliderOrder });
+                
                 const newsResult = await pool.query('SELECT id, title, description, image FROM news WHERE id = $1', [contentId]);
                 if (newsResult.rows.length === 0) {
+                    console.error('News not found:', contentId);
                     return apiResponse.errors.notFound(res, 'Haber');
                 }
                 
                 const news = newsResult.rows[0];
+                console.log('Found news:', { id: news.id, title: news.title, image: news.image });
                 
                 // Get max order if sliderOrder not provided
                 let finalOrder = sliderOrder;
-                if (!finalOrder) {
-                    const maxOrderResult = await pool.query('SELECT COALESCE(MAX("order"), 0) + 1 as max_order FROM sliders');
-                    finalOrder = maxOrderResult.rows[0]?.max_order || 1;
+                if (finalOrder === undefined || finalOrder === null) {
+                    try {
+                        const maxOrderResult = await pool.query('SELECT COALESCE(MAX("order"), 0) + 1 as max_order FROM sliders');
+                        finalOrder = maxOrderResult.rows[0]?.max_order || 1;
+                    } catch (orderErr) {
+                        console.warn('Error getting max order, using 1:', orderErr);
+                        finalOrder = 1;
+                    }
                 }
                 
-                const { rows } = await pool.query(
-                    `INSERT INTO sliders (title, subtitle, image_url, link_type, link_id, is_active, "order")
-                     VALUES ($1, $2, $3, 'news', $4, TRUE, $5)
-                     RETURNING *`,
-                    [
-                        sliderTitle || news.title,
-                        sliderSubtitle || news.description || null,
-                        news.image || null,
-                        contentId,
-                        finalOrder
-                    ]
-                );
+                const insertTitle = sliderTitle || news.title || 'Haber';
+                const insertSubtitle = sliderSubtitle || news.description || null;
+                const insertImage = news.image || null;
                 
-                return apiResponse.success(res, rows[0], 201);
+                console.log('Inserting slider:', { 
+                    title: insertTitle, 
+                    subtitle: insertSubtitle, 
+                    image: insertImage, 
+                    linkId: contentId, 
+                    order: finalOrder 
+                });
+                
+                try {
+                    const { rows } = await pool.query(
+                        `INSERT INTO sliders (title, subtitle, image_url, link_type, link_id, is_active, "order")
+                         VALUES ($1, $2, $3, 'news', $4, TRUE, $5)
+                         RETURNING *`,
+                        [
+                            insertTitle,
+                            insertSubtitle,
+                            insertImage,
+                            contentId,
+                            finalOrder
+                        ]
+                    );
+                    
+                    console.log('Slider created successfully:', rows[0]);
+                    return apiResponse.success(res, rows[0], 201);
+                } catch (insertErr) {
+                    console.error('INSERT INTO sliders error:', insertErr);
+                    console.error('Error details:', {
+                        message: insertErr.message,
+                        code: insertErr.code,
+                        detail: insertErr.detail
+                    });
+                    
+                    // Check if sliders table exists, if not create it
+                    if (insertErr.message.includes('does not exist') || insertErr.code === '42P01') {
+                        try {
+                            console.log('Creating sliders table...');
+                            await pool.query(`
+                                CREATE TABLE IF NOT EXISTS sliders (
+                                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                    title VARCHAR(255) NOT NULL,
+                                    subtitle VARCHAR(500),
+                                    image_url TEXT NOT NULL,
+                                    link_type VARCHAR(50),
+                                    link_id UUID,
+                                    link_url TEXT,
+                                    "order" INTEGER DEFAULT 0,
+                                    is_active BOOLEAN DEFAULT TRUE,
+                                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                                )
+                            `);
+                            
+                            await pool.query('CREATE INDEX IF NOT EXISTS idx_sliders_order ON sliders("order")');
+                            await pool.query('CREATE INDEX IF NOT EXISTS idx_sliders_active ON sliders(is_active)');
+                            
+                            // Retry insert
+                            const { rows } = await pool.query(
+                                `INSERT INTO sliders (title, subtitle, image_url, link_type, link_id, is_active, "order")
+                                 VALUES ($1, $2, $3, 'news', $4, TRUE, $5)
+                                 RETURNING *`,
+                                [
+                                    insertTitle,
+                                    insertSubtitle,
+                                    insertImage,
+                                    contentId,
+                                    finalOrder
+                                ]
+                            );
+                            
+                            console.log('Slider created after table creation:', rows[0]);
+                            return apiResponse.success(res, rows[0], 201);
+                        } catch (createErr) {
+                            console.error('Error creating sliders table:', createErr);
+                            return apiResponse.errors.serverError(res, `Veritabanı hatası: ${createErr.message}`);
+                        }
+                    }
+                    
+                    return apiResponse.errors.serverError(res, `Slider oluşturulurken hata: ${insertErr.message}`);
+                }
             } else if (contentType === 'slider') {
                 // Create new standalone slider (for external links)
                 const { title, subtitle, imageUrl, linkType, linkId, linkUrl, isActive, order } = req.body;

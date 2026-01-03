@@ -7,6 +7,19 @@ function createForumRouter(middlewares) {
     const router = express.Router();
     const { publicLimiter, adminLimiter, validate, createForumPostSchema, apiResponse } = middlewares;
 
+    // GET /forum/categories - List all forum categories
+    router.get('/categories', publicLimiter, async (req, res) => {
+        try {
+            const { rows } = await pool.query(
+                'SELECT * FROM forum_categories ORDER BY post_count DESC, name ASC'
+            );
+            return apiResponse.success(res, rows);
+        } catch (err) {
+            console.error('GET /forum/categories error:', err);
+            return apiResponse.errors.serverError(res, 'Forum kategorileri yüklenirken hata oluştu');
+        }
+    });
+
     // GET /forum/posts - List all forum posts
     router.get('/posts', publicLimiter, async (req, res) => {
         try {

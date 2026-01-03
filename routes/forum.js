@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../db');
 const { requireAdmin } = require('../middleware/auth');
+const { mapForumPost } = require('../utils/helpers');
 
 // Factory function that creates router with injected middleware
 function createForumRouter(middlewares) {
@@ -38,7 +39,7 @@ function createForumRouter(middlewares) {
             params.push(parseInt(limit), parseInt(offset));
 
             const { rows } = await pool.query(query, params);
-            return apiResponse.success(res, rows);
+            return apiResponse.success(res, rows.map(mapForumPost));
         } catch (err) {
             console.error('GET /forum/posts error:', err);
             return apiResponse.errors.serverError(res, 'Forum gönderileri yüklenirken hata oluştu');
@@ -53,7 +54,7 @@ function createForumRouter(middlewares) {
                 'SELECT * FROM forum_posts ORDER BY created_at DESC LIMIT $1',
                 [parseInt(limit)]
             );
-            return apiResponse.success(res, rows);
+            return apiResponse.success(res, rows.map(mapForumPost));
         } catch (err) {
             console.error('GET /forum/posts/recent error:', err);
             return apiResponse.errors.serverError(res, 'Son gönderiler yüklenirken hata oluştu');
@@ -68,7 +69,7 @@ function createForumRouter(middlewares) {
                 'SELECT * FROM forum_posts ORDER BY view_count DESC, created_at DESC LIMIT $1',
                 [parseInt(limit)]
             );
-            return apiResponse.success(res, rows);
+            return apiResponse.success(res, rows.map(mapForumPost));
         } catch (err) {
             console.error('GET /forum/posts/popular error:', err);
             return apiResponse.errors.serverError(res, 'Popüler gönderiler yüklenirken hata oluştu');
@@ -83,7 +84,7 @@ function createForumRouter(middlewares) {
                 [req.params.id]
             );
             if (rows.length > 0) {
-                return apiResponse.success(res, rows[0]);
+                return apiResponse.success(res, mapForumPost(rows[0]));
             } else {
                 return apiResponse.errors.notFound(res, 'Forum gönderisi');
             }
@@ -105,7 +106,7 @@ function createForumRouter(middlewares) {
                 [title, description, content, category || 'Genel Sohbet', categoryId || 'general', userName || 'Anonim', carBrand || null, carModel || null]
             );
 
-            return apiResponse.success(res, rows[0], 201);
+            return apiResponse.success(res, mapForumPost(rows[0]), 201);
         } catch (err) {
             console.error('POST /forum/posts error:', err);
             return apiResponse.errors.serverError(res, 'Forum gönderisi oluşturulurken hata oluştu');
@@ -149,7 +150,7 @@ function createForumRouter(middlewares) {
             const { rows } = await pool.query(query, values);
 
             if (rows.length > 0) {
-                return apiResponse.success(res, rows[0]);
+                return apiResponse.success(res, mapForumPost(rows[0]));
             } else {
                 return apiResponse.errors.notFound(res, 'Forum gönderisi');
             }
@@ -167,7 +168,7 @@ function createForumRouter(middlewares) {
                 [req.params.id]
             );
             if (rows.length > 0) {
-                return apiResponse.success(res, { message: 'Forum gönderisi silindi', post: rows[0] });
+                return apiResponse.success(res, { message: 'Forum gönderisi silindi', post: mapForumPost(rows[0]) });
             } else {
                 return apiResponse.errors.notFound(res, 'Forum gönderisi');
             }

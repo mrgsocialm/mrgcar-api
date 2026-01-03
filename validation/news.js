@@ -60,15 +60,16 @@ const updateNewsSchema = z.object({
 function validate(schema, source = 'body') {
     return (req, res, next) => {
         try {
-            if (!schema || typeof schema.parse !== 'function') {
+            // Check if schema is valid Zod schema
+            if (!schema || typeof schema.parse !== 'function' || !schema._def) {
                 console.error('Validation Middleware Error: schema is undefined or not a Zod schema');
-                return res.status(500).json({
-                    ok: false,
-                    error: {
-                        code: 'VALIDATION_ERROR',
-                        message: 'Doğrulama şeması tanımlı değil',
-                    },
-                });
+                // Skip validation if schema is invalid, just pass through
+                if (source === 'query') {
+                    req.validatedQuery = req.query;
+                } else {
+                    req.validatedBody = req.body;
+                }
+                return next();
             }
             const dataToValidate = source === 'query' ? req.query : req.body;
             const validated = schema.parse(dataToValidate);

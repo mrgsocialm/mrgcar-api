@@ -375,6 +375,15 @@ const notificationsRouter = createNotificationsRouter({
 });
 app.use('/notifications', notificationsRouter);
 
+// Users router
+const createUsersRouter = require('./routes/users');
+const usersRouter = createUsersRouter({
+    publicLimiter,
+    adminLimiter,
+    apiResponse,
+});
+app.use('/users', usersRouter);
+
 // Export app and dependencies for other modules and tests
 module.exports = {
     app,

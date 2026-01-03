@@ -110,39 +110,94 @@ function createSlidersRouter(middlewares) {
         try {
             const { contentType, contentId, sliderTitle, sliderSubtitle, sliderOrder } = req.body;
             
+            console.log('POST /sliders request:', { contentType, contentId, sliderTitle, sliderSubtitle, sliderOrder });
+            
             // contentType: 'car' | 'news' | 'slider'
             // contentId: UUID of car/news or null for new slider
             
             if (contentType === 'car' && contentId) {
-                // Mark car for slider
-                const { rows } = await pool.query(
-                    `UPDATE cars 
-                     SET show_in_slider = TRUE, 
-                         slider_title = $1, 
-                         slider_subtitle = $2, 
-                         slider_order = COALESCE($3, (SELECT COALESCE(MAX(slider_order), 0) + 1 FROM cars WHERE show_in_slider = TRUE))
-                     WHERE id = $4
-                     RETURNING *`,
-                    [sliderTitle || null, sliderSubtitle || null, sliderOrder || null, contentId]
-                );
-                
-                if (rows.length === 0) {
+                // First check if car exists
+                const carCheck = await pool.query('SELECT id FROM cars WHERE id = $1', [contentId]);
+                if (carCheck.rows.length === 0) {
                     return apiResponse.errors.notFound(res, 'Araç');
                 }
                 
-                return apiResponse.success(res, { 
-                    message: 'Araç slider\'a eklendi',
-                    car: rows[0]
-                }, 201);
+                // Get max order if sliderOrder not provided
+                let finalOrder = sliderOrder;
+                if (!finalOrder) {
+                    const maxOrderResult = await pool.query(
+                        'SELECT COALESCE(MAX(slider_order), 0) + 1 as max_order FROM cars WHERE show_in_slider = TRUE'
+                    );
+                    finalOrder = maxOrderResult.rows[0]?.max_order || 1;
+                }
+                
+                // Mark car for slider - use IF EXISTS for columns that might not exist
+                try {
+                    const { rows } = await pool.query(
+                        `UPDATE cars 
+                         SET show_in_slider = TRUE, 
+                             slider_title = $1, 
+                             slider_subtitle = $2, 
+                             slider_order = $3
+                         WHERE id = $4
+                         RETURNING *`,
+                        [sliderTitle || null, sliderSubtitle || null, finalOrder, contentId]
+                    );
+                    
+                    return apiResponse.success(res, { 
+                        message: 'Araç slider\'a eklendi',
+                        car: rows[0]
+                    }, 201);
+                } catch (updateErr) {
+                    console.error('UPDATE cars error:', updateErr);
+                    // If columns don't exist, try to add them first
+                    if (updateErr.message.includes('column') && updateErr.message.includes('does not exist')) {
+                        // Try to add missing columns
+                        try {
+                            await pool.query('ALTER TABLE cars ADD COLUMN IF NOT EXISTS show_in_slider BOOLEAN DEFAULT FALSE');
+                            await pool.query('ALTER TABLE cars ADD COLUMN IF NOT EXISTS slider_title VARCHAR(255)');
+                            await pool.query('ALTER TABLE cars ADD COLUMN IF NOT EXISTS slider_subtitle VARCHAR(255)');
+                            await pool.query('ALTER TABLE cars ADD COLUMN IF NOT EXISTS slider_order INTEGER DEFAULT 0');
+                            
+                            // Retry update
+                            const { rows } = await pool.query(
+                                `UPDATE cars 
+                                 SET show_in_slider = TRUE, 
+                                     slider_title = $1, 
+                                     slider_subtitle = $2, 
+                                     slider_order = $3
+                                 WHERE id = $4
+                                 RETURNING *`,
+                                [sliderTitle || null, sliderSubtitle || null, finalOrder, contentId]
+                            );
+                            
+                            return apiResponse.success(res, { 
+                                message: 'Araç slider\'a eklendi',
+                                car: rows[0]
+                            }, 201);
+                        } catch (alterErr) {
+                            console.error('ALTER TABLE error:', alterErr);
+                            return apiResponse.errors.serverError(res, `Veritabanı hatası: ${alterErr.message}`);
+                        }
+                    }
+                    throw updateErr;
+                }
             } else if (contentType === 'news' && contentId) {
-                // Mark news for slider (if news table has show_in_slider column)
-                // For now, create a slider entry linking to news
+                // Mark news for slider - create a slider entry linking to news
                 const newsResult = await pool.query('SELECT id, title, description, image FROM news WHERE id = $1', [contentId]);
                 if (newsResult.rows.length === 0) {
                     return apiResponse.errors.notFound(res, 'Haber');
                 }
                 
                 const news = newsResult.rows[0];
+                
+                // Get max order if sliderOrder not provided
+                let finalOrder = sliderOrder;
+                if (!finalOrder) {
+                    const maxOrderResult = await pool.query('SELECT COALESCE(MAX("order"), 0) + 1 as max_order FROM sliders');
+                    finalOrder = maxOrderResult.rows[0]?.max_order || 1;
+                }
+                
                 const { rows } = await pool.query(
                     `INSERT INTO sliders (title, subtitle, image_url, link_type, link_id, is_active, "order")
                      VALUES ($1, $2, $3, 'news', $4, TRUE, $5)
@@ -152,7 +207,7 @@ function createSlidersRouter(middlewares) {
                         sliderSubtitle || news.description || null,
                         news.image || null,
                         contentId,
-                        sliderOrder || 0
+                        finalOrder
                     ]
                 );
                 
@@ -161,11 +216,22 @@ function createSlidersRouter(middlewares) {
                 // Create new standalone slider (for external links)
                 const { title, subtitle, imageUrl, linkType, linkId, linkUrl, isActive, order } = req.body;
                 
+                if (!title || !imageUrl) {
+                    return apiResponse.errors.badRequest(res, 'Başlık ve görsel URL zorunludur');
+                }
+                
+                // Get max order if order not provided
+                let finalOrder = order;
+                if (!finalOrder) {
+                    const maxOrderResult = await pool.query('SELECT COALESCE(MAX("order"), 0) + 1 as max_order FROM sliders');
+                    finalOrder = maxOrderResult.rows[0]?.max_order || 1;
+                }
+                
                 const { rows } = await pool.query(
                     `INSERT INTO sliders (title, subtitle, image_url, link_type, link_id, link_url, is_active, "order")
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                      RETURNING *`,
-                    [title, subtitle || null, imageUrl, linkType || null, linkId || null, linkUrl || null, isActive !== false, order || 0]
+                    [title, subtitle || null, imageUrl, linkType || null, linkId || null, linkUrl || null, isActive !== false, finalOrder]
                 );
                 
                 return apiResponse.success(res, rows[0], 201);
@@ -174,7 +240,8 @@ function createSlidersRouter(middlewares) {
             }
         } catch (err) {
             console.error('POST /sliders error:', err);
-            return apiResponse.errors.serverError(res, 'Slider oluşturulurken hata oluştu');
+            console.error('Error stack:', err.stack);
+            return apiResponse.errors.serverError(res, `Slider oluşturulurken hata oluştu: ${err.message}`);
         }
     });
 

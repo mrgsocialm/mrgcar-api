@@ -18,16 +18,39 @@ function createCarsRouter(middlewares) {
         LIMIT 10
       `);
 
-            return apiResponse.success(res, rows.map(row => ({
-                id: row.id,
-                make: row.make,
-                model: row.model,
-                title: row.slider_title || `${row.make} ${row.model}`,
-                subtitle: row.slider_subtitle || row.data?.summary || '',
-                imageUrl: row.data?.imageUrls?.[0] || row.data?.imageUrl || null,
-                linkType: 'car',
-                linkValue: row.id.toString(),
-            })));
+            return apiResponse.success(res, rows.map(row => {
+                // data JSONB field'ını parse et
+                let data = {};
+                if (row.data) {
+                    try {
+                        data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+                    } catch (e) {
+                        console.warn('Failed to parse car data JSON:', e);
+                        data = {};
+                    }
+                }
+
+                // Görsel URL'ini bul - önce imageUrls array'inden, sonra imageUrl'den
+                let imageUrl = null;
+                if (data.imageUrls && Array.isArray(data.imageUrls) && data.imageUrls.length > 0) {
+                    imageUrl = data.imageUrls[0];
+                } else if (data.imageUrl && typeof data.imageUrl === 'string') {
+                    imageUrl = data.imageUrl;
+                } else if (data.images && Array.isArray(data.images) && data.images.length > 0) {
+                    imageUrl = data.images[0];
+                }
+
+                return {
+                    id: row.id,
+                    make: row.make,
+                    model: row.model,
+                    title: row.slider_title || `${row.make} ${row.model}`,
+                    subtitle: row.slider_subtitle || data.summary || '',
+                    imageUrl: imageUrl,
+                    linkType: 'car',
+                    linkValue: row.id.toString(),
+                };
+            }));
         } catch (err) {
             console.error("GET /cars/slider error:", err);
             return apiResponse.errors.serverError(res, 'Slider verileri yüklenirken hata oluştu');

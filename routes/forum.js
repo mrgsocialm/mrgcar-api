@@ -32,7 +32,37 @@ function createForumRouter(middlewares) {
         }
     });
 
-    // GET /forum/posts/:id - Get single forum post
+    // GET /forum/posts/recent - Get recent posts (special route, must come before /posts/:id)
+    router.get('/posts/recent', publicLimiter, async (req, res) => {
+        try {
+            const { limit = 10 } = req.query;
+            const { rows } = await pool.query(
+                'SELECT * FROM forum_posts ORDER BY created_at DESC LIMIT $1',
+                [parseInt(limit)]
+            );
+            return apiResponse.success(res, rows);
+        } catch (err) {
+            console.error('GET /forum/posts/recent error:', err);
+            return apiResponse.errors.serverError(res, 'Son gönderiler yüklenirken hata oluştu');
+        }
+    });
+
+    // GET /forum/posts/popular - Get popular posts (special route, must come before /posts/:id)
+    router.get('/posts/popular', publicLimiter, async (req, res) => {
+        try {
+            const { limit = 10 } = req.query;
+            const { rows } = await pool.query(
+                'SELECT * FROM forum_posts ORDER BY view_count DESC, created_at DESC LIMIT $1',
+                [parseInt(limit)]
+            );
+            return apiResponse.success(res, rows);
+        } catch (err) {
+            console.error('GET /forum/posts/popular error:', err);
+            return apiResponse.errors.serverError(res, 'Popüler gönderiler yüklenirken hata oluştu');
+        }
+    });
+
+    // GET /forum/posts/:id - Get single forum post (must come after special routes)
     router.get('/posts/:id', publicLimiter, async (req, res) => {
         try {
             const { rows } = await pool.query(
@@ -138,4 +168,5 @@ function createForumRouter(middlewares) {
 }
 
 module.exports = createForumRouter;
+
 

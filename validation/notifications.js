@@ -24,6 +24,16 @@ const sendNotificationSchema = z.object({
 function validate(schema, source = 'body') {
     return (req, res, next) => {
         try {
+            if (!schema || typeof schema.parse !== 'function') {
+                console.error('Validation Middleware Error: schema is undefined or not a Zod schema');
+                return res.status(500).json({
+                    ok: false,
+                    error: {
+                        code: 'VALIDATION_ERROR',
+                        message: 'Doğrulama şeması tanımlı değil',
+                    },
+                });
+            }
             const dataToValidate = source === 'query' ? req.query : req.body;
             const validated = schema.parse(dataToValidate);
 
@@ -57,4 +67,5 @@ module.exports = {
     sendNotificationSchema,
     validate,
 };
+
 

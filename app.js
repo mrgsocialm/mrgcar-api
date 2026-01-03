@@ -39,6 +39,17 @@ try {
 
     const forumValidationModule = require('./validation/forum');
     createForumPostSchema = forumValidationModule.createForumPostSchema;
+
+    const newsValidationModule = require('./validation/news');
+    createNewsSchema = newsValidationModule.createNewsSchema;
+    updateNewsSchema = newsValidationModule.updateNewsSchema;
+
+    const slidersValidationModule = require('./validation/sliders');
+    createSliderSchema = slidersValidationModule.createSliderSchema;
+    updateSliderSchema = slidersValidationModule.updateSliderSchema;
+
+    const notificationsValidationModule = require('./validation/notifications');
+    sendNotificationSchema = notificationsValidationModule.sendNotificationSchema;
 } catch (e) {
     console.warn('⚠️  Some security modules not installed. Run: npm install zod helmet express-rate-limit');
     helmet = () => (req, res, next) => next();
@@ -61,11 +72,6 @@ try {
         }
     };
     createForumPostSchema = {};
-    createNewsSchema = {};
-    updateNewsSchema = {};
-    createSliderSchema = {};
-    updateSliderSchema = {};
-    sendNotificationSchema = {};
     createNewsSchema = {};
     updateNewsSchema = {};
     createSliderSchema = {};
@@ -328,6 +334,9 @@ const createNewsRouter = require('./routes/news');
 const newsRouter = createNewsRouter({
     publicLimiter,
     adminLimiter,
+    validate,
+    createNewsSchema,
+    updateNewsSchema,
     apiResponse,
 });
 app.use('/news', newsRouter);

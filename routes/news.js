@@ -1,12 +1,11 @@
 const express = require('express');
 const pool = require('../db');
 const { requireAdmin } = require('../middleware/auth');
-const { validate, createNewsSchema, updateNewsSchema } = require('../validation/news');
 
 // Factory function that creates router with injected middleware
 function createNewsRouter(middlewares) {
     const router = express.Router();
-    const { publicLimiter, adminLimiter, apiResponse } = middlewares;
+    const { publicLimiter, adminLimiter, validate, createNewsSchema, updateNewsSchema, apiResponse } = middlewares;
 
     // GET /news - List all news
     router.get('/', publicLimiter, async (req, res) => {

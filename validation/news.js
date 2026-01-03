@@ -23,10 +23,11 @@ const createNewsSchema = z.object({
     author: z.string()
         .min(2, 'Yazar adı en az 2 karakter olmalı')
         .max(100, 'Yazar adı en fazla 100 karakter olabilir'),
-    image: z.string()
-        .url('Geçerli bir URL olmalı')
-        .optional()
-        .nullable(),
+    image: z.union([
+        z.string().url('Geçerli bir URL olmalı'),
+        z.literal(''),
+        z.null(),
+    ]).optional().transform(val => val === '' ? null : val),
 });
 
 // News article update schema (all fields optional, but if provided must be valid)
@@ -50,10 +51,11 @@ const updateNewsSchema = z.object({
         .min(2, 'Yazar adı en az 2 karakter olmalı')
         .max(100, 'Yazar adı en fazla 100 karakter olabilir')
         .optional(),
-    image: z.string()
-        .url('Geçerli bir URL olmalı')
-        .optional()
-        .nullable(),
+    image: z.union([
+        z.string().url('Geçerli bir URL olmalı'),
+        z.literal(''),
+        z.null(),
+    ]).optional().transform(val => val === '' ? null : val),
 });
 
 // Validation middleware factory

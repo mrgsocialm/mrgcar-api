@@ -3,8 +3,8 @@ const jwt = require('jsonwebtoken');
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || JWT_SECRET + '-refresh';
 const ADMIN_JWT_SECRET = JWT_SECRET;
-const ACCESS_TOKEN_EXPIRY = '15m';
-const REFRESH_TOKEN_EXPIRY = '7d';
+const ACCESS_TOKEN_EXPIRY = '30d'; // 30 gün - mobil uygulama için uzun süre
+const REFRESH_TOKEN_EXPIRY = '90d'; // 90 gün
 const ADMIN_TOKEN_EXPIRY = '12h';
 
 // Token generation functions

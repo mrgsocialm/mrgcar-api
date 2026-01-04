@@ -91,8 +91,11 @@ async function getUserFromToken(req) {
 // Middleware to require authenticated user (not necessarily admin)
 function requireUser(req, res, next) {
     const authHeader = req.headers.authorization;
+    
+    console.log('[requireUser] Auth header:', authHeader ? `Bearer ${authHeader.substring(7, 20)}...` : 'MISSING');
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        console.log('[requireUser] ERROR: No token provided');
         return res.status(401).json({ error: "Unauthorized: No token provided" });
     }
 
@@ -100,9 +103,11 @@ function requireUser(req, res, next) {
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
+        console.log('[requireUser] Token valid, userId:', decoded.userId);
         req.user = decoded;
         next();
     } catch (error) {
+        console.log('[requireUser] ERROR:', error.name, error.message);
         if (error.name === 'TokenExpiredError') {
             return res.status(401).json({ error: "Unauthorized: Token expired" });
         }

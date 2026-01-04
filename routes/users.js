@@ -19,7 +19,7 @@ function createUsersRouter(middlewares) {
                     updated_at,
                     COALESCE(status, 'active') as status,
                     COALESCE(role, 'user') as role,
-                    COALESCE(status != 'banned', true) as is_active,
+                    (COALESCE(status, 'active') != 'banned') as is_active,
                     last_seen,
                     avatar_url
                 FROM users 

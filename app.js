@@ -395,6 +395,7 @@ app.use('/users', usersRouter);
 const createUploadsRouter = require('./routes/uploads');
 const uploadsRouter = createUploadsRouter({
     adminLimiter,
+    publicLimiter,
     validate,
     presignUploadSchema,
     deleteUploadSchema,

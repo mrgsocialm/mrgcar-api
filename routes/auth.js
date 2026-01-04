@@ -152,7 +152,7 @@ function createAuthRouter(deps) {
             const decoded = jwt.verify(token, JWT_SECRET);
 
             const result = await pool.query(
-                'SELECT id, email, name, created_at FROM users WHERE id = $1',
+                'SELECT id, email, name, created_at, avatar_url, banner_url FROM users WHERE id = $1',
                 [decoded.userId]
             );
 
@@ -167,7 +167,9 @@ function createAuthRouter(deps) {
                 user: {
                     id: user.id,
                     name: user.name,
-                    email: user.email
+                    email: user.email,
+                    avatar_url: user.avatar_url,
+                    banner_url: user.banner_url,
                 }
             });
         } catch (error) {
@@ -175,6 +177,78 @@ function createAuthRouter(deps) {
                 return res.status(401).json({ success: false, error: 'Token süresi dolmuş' });
             }
             return res.status(401).json({ success: false, error: 'Geçersiz token' });
+        }
+    });
+
+    // PATCH /auth/profile - Kullanıcı kendi profilini günceller
+    router.patch('/profile', authLimiter, async (req, res) => {
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+            return res.status(401).json({ success: false, error: 'Token gerekli' });
+        }
+
+        const parts = authHeader.split(' ');
+        if (parts.length !== 2 || parts[0] !== 'Bearer') {
+            return res.status(401).json({ success: false, error: 'Geçersiz token formatı' });
+        }
+
+        const token = parts[1];
+
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET);
+            const userId = decoded.userId;
+
+            const { name, avatar_url, banner_url } = req.body || {};
+
+            // Build update query dynamically
+            const updates = [];
+            const values = [];
+            let paramIndex = 1;
+
+            if (name !== undefined && name !== null) {
+                updates.push(`name = $${paramIndex++}`);
+                values.push(name);
+            }
+            if (avatar_url !== undefined) {
+                updates.push(`avatar_url = $${paramIndex++}`);
+                values.push(avatar_url);
+            }
+            if (banner_url !== undefined) {
+                updates.push(`banner_url = $${paramIndex++}`);
+                values.push(banner_url);
+            }
+
+            if (updates.length === 0) {
+                return res.status(400).json({ success: false, error: 'Güncellenecek alan belirtilmedi' });
+            }
+
+            updates.push(`updated_at = NOW()`);
+            values.push(userId);
+
+            const query = `
+                UPDATE users 
+                SET ${updates.join(', ')}
+                WHERE id = $${paramIndex}
+                RETURNING id, email, name, avatar_url, banner_url, created_at
+            `;
+
+            const { rows } = await pool.query(query, values);
+
+            if (rows.length > 0) {
+                return res.json({
+                    success: true,
+                    user: rows[0]
+                });
+            } else {
+                return res.status(404).json({ success: false, error: 'Kullanıcı bulunamadı' });
+            }
+        } catch (error) {
+            if (error.name === 'TokenExpiredError') {
+                return res.status(401).json({ success: false, error: 'Token süresi dolmuş' });
+            }
+            console.error('PATCH /auth/profile error:', error);
+            return res.status(500).json({ success: false, error: 'Sunucu hatası' });
         }
     });
 

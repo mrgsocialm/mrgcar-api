@@ -6,19 +6,40 @@
 const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
-const { requireAdmin } = require('../middleware/auth');
+const { requireAdmin, requireUser } = require('../middleware/auth');
 const { generatePresignedUploadUrl, getPublicUrl, isConfigured, deleteObjects, extractKeyFromPublicUrl } = require('../services/r2');
 
 function createUploadsRouter(middlewares) {
     const router = express.Router();
-    const { adminLimiter, validate, presignUploadSchema, deleteUploadSchema, apiResponse } = middlewares;
+    const { adminLimiter, publicLimiter, validate, presignUploadSchema, deleteUploadSchema, apiResponse } = middlewares;
+    
+    // Helper function to check if user is admin
+    function isAdmin(req) {
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return false;
+        }
+        const jwt = require('jsonwebtoken');
+        const token = authHeader.split(' ')[1];
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            // Check if token has admin role
+            return decoded.role === 'admin';
+        } catch (e) {
+            return false;
+        }
+    }
 
     /**
      * POST /uploads/presign
      * Generate presigned URL for file upload
-     * Body: { filename: string, contentType: string, folder?: "cars"|"news"|"sliders"|"misc" }
+     * Body: { filename: string, contentType: string, folder?: "cars"|"news"|"sliders"|"profiles"|"banners" }
+     * 
+     * Access control:
+     * - profiles, banners: Any authenticated user
+     * - cars, news, sliders: Admin only
      */
-    router.post('/presign', adminLimiter, requireAdmin, validate(presignUploadSchema), async (req, res) => {
+    router.post('/presign', publicLimiter, requireUser, validate(presignUploadSchema), async (req, res) => {
         try {
             // Check if R2 is configured
             if (!isConfigured()) {
@@ -32,6 +53,18 @@ function createUploadsRouter(middlewares) {
             if (!ALLOWED_FOLDERS.includes(folder)) {
                 return apiResponse.errors.badRequest(res, `Invalid folder. Allowed: ${ALLOWED_FOLDERS.join(', ')}`);
             }
+
+            // Check if user has permission for this folder
+            // Admin can access all folders, regular users can only access profiles and banners
+            const adminFolders = ['cars', 'news', 'sliders'];
+            
+            if (adminFolders.includes(folder)) {
+                // Check if user is admin
+                if (!isAdmin(req)) {
+                    return apiResponse.errors.forbidden(res, 'Bu klasör için admin yetkisi gereklidir.');
+                }
+            }
+            // For profiles and banners, any authenticated user can access (already passed requireUser)
 
             // Extract file extension (prevent path traversal)
             const ext = path.extname(filename).toLowerCase().slice(1); // Remove leading dot

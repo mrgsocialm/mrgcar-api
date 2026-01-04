@@ -96,15 +96,50 @@ function getPublicUrl(key) {
  * @returns {string|null} Key or null if URL doesn't match
  */
 function extractKeyFromPublicUrl(publicUrl) {
-    if (!publicUrl || !R2_PUBLIC_BASE_URL) {
+    if (!publicUrl || typeof publicUrl !== 'string') {
         return null;
     }
-    // Remove trailing slash from base URL
-    const baseUrl = R2_PUBLIC_BASE_URL.replace(/\/$/, '');
-    if (publicUrl.startsWith(baseUrl + '/')) {
-        return publicUrl.substring(baseUrl.length + 1);
+
+    try {
+        const url = new URL(publicUrl);
+        
+        // Allow only our trusted hosts
+        const allowedHosts = [];
+        if (R2_PUBLIC_BASE_URL) {
+            try {
+                const baseUrlObj = new URL(R2_PUBLIC_BASE_URL);
+                allowedHosts.push(baseUrlObj.hostname);
+            } catch (e) {
+                // Invalid base URL, skip
+            }
+        }
+        // Also allow img.mrgcar.com (custom domain)
+        allowedHosts.push('img.mrgcar.com');
+        
+        // Check if host is allowed
+        if (!allowedHosts.includes(url.hostname)) {
+            console.warn(`Rejected publicUrl from untrusted host: ${url.hostname}`);
+            return null;
+        }
+
+        // Extract pathname, remove leading slash, decode
+        let key = url.pathname;
+        if (key.startsWith('/')) {
+            key = key.substring(1);
+        }
+        key = decodeURIComponent(key);
+        
+        // Security: prevent path traversal in extracted key
+        if (key.includes('..') || key.includes('\\')) {
+            console.warn(`Rejected publicUrl with dangerous path: ${key}`);
+            return null;
+        }
+        
+        return key;
+    } catch (error) {
+        console.warn(`Failed to parse publicUrl: ${publicUrl}`, error.message);
+        return null;
     }
-    return null;
 }
 
 /**

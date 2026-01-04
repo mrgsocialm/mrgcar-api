@@ -95,6 +95,7 @@ function createUploadsRouter(middlewares) {
                 uploadUrl,
                 publicUrl,
                 key,
+                maxSizeBytes: 5 * 1024 * 1024, // 5MB max
             });
         } catch (error) {
             console.error('POST /uploads/presign error:', error);
@@ -114,13 +115,42 @@ function createUploadsRouter(middlewares) {
                 return apiResponse.errors.serverError(res, 'R2 storage is not configured. Please check environment variables.');
             }
 
-            const { key, keys } = req.validatedBody || req.body;
+            const { key, keys, publicUrl, publicUrls } = req.validatedBody || req.body;
 
             // Build list of keys to delete
-            const keysToDelete = keys && keys.length > 0 ? keys : (key ? [key] : []);
+            let keysToDelete = [];
+            
+            // If keys array provided, use it
+            if (keys && keys.length > 0) {
+                keysToDelete = keys;
+            }
+            // If single key provided, add it
+            else if (key) {
+                keysToDelete = [key];
+            }
+            // If publicUrls array provided, extract keys
+            else if (publicUrls && publicUrls.length > 0) {
+                for (const url of publicUrls) {
+                    const extractedKey = extractKeyFromPublicUrl(url);
+                    if (extractedKey) {
+                        keysToDelete.push(extractedKey);
+                    } else {
+                        return apiResponse.errors.badRequest(res, `Invalid publicUrl: ${url}. Could not extract key.`);
+                    }
+                }
+            }
+            // If single publicUrl provided, extract key
+            else if (publicUrl) {
+                const extractedKey = extractKeyFromPublicUrl(publicUrl);
+                if (extractedKey) {
+                    keysToDelete = [extractedKey];
+                } else {
+                    return apiResponse.errors.badRequest(res, `Invalid publicUrl: ${publicUrl}. Could not extract key.`);
+                }
+            }
 
             if (keysToDelete.length === 0) {
-                return apiResponse.errors.badRequest(res, 'Either "key" or "keys" array must be provided');
+                return apiResponse.errors.badRequest(res, 'Either "key", "keys", "publicUrl", or "publicUrls" array must be provided');
             }
 
             // Validate all keys (prevent path traversal)

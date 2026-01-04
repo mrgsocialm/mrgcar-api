@@ -47,9 +47,11 @@ const presignUploadSchema = z.object({
 const deleteUploadSchema = z.object({
     key: z.string().optional(),
     keys: z.array(z.string()).optional(),
+    publicUrl: z.string().url().optional(),
+    publicUrls: z.array(z.string().url()).optional(),
 }).refine(
-    (data) => data.key || (data.keys && data.keys.length > 0),
-    { message: 'Either "key" or "keys" array must be provided' }
+    (data) => data.key || (data.keys && data.keys.length > 0) || data.publicUrl || (data.publicUrls && data.publicUrls.length > 0),
+    { message: 'Either "key", "keys", "publicUrl", or "publicUrls" array must be provided' }
 );
 
 module.exports = {

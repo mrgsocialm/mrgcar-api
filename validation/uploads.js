@@ -41,8 +41,20 @@ const presignUploadSchema = z.object({
     model: z.string().optional(),
 });
 
+/**
+ * Delete upload request schema
+ */
+const deleteUploadSchema = z.object({
+    key: z.string().optional(),
+    keys: z.array(z.string()).optional(),
+}).refine(
+    (data) => data.key || (data.keys && data.keys.length > 0),
+    { message: 'Either "key" or "keys" array must be provided' }
+);
+
 module.exports = {
     presignUploadSchema,
+    deleteUploadSchema,
     ALLOWED_CONTENT_TYPES,
     ALLOWED_FOLDERS,
 };

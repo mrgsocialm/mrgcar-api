@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../db');
 const { requireAdmin } = require('../middleware/auth');
+const { extractKeyFromPublicUrl, deleteObjects } = require('../services/r2');
 
 // Factory function that creates router with injected middleware
 function createSlidersRouter(middlewares) {
@@ -404,12 +405,39 @@ function createSlidersRouter(middlewares) {
                     return apiResponse.success(res, { message: 'Araç slider\'dan kaldırıldı', car: rows[0] });
                 }
             } else {
+                // First, get the slider to extract image URL before deletion
+                const { rows: sliderRows } = await pool.query(
+                    'SELECT * FROM sliders WHERE id = $1',
+                    [req.params.id]
+                );
+
+                if (sliderRows.length === 0) {
+                    return apiResponse.errors.notFound(res, 'Slider');
+                }
+
+                const slider = sliderRows[0];
+                const imageKeys = [];
+
+                // Extract image key from R2 public URL (only for standalone sliders)
+                if (slider.image_url && typeof slider.image_url === 'string') {
+                    const key = extractKeyFromPublicUrl(slider.image_url);
+                    if (key) imageKeys.push(key);
+                }
+
                 // Delete from sliders table
                 const { rows } = await pool.query(
                     'DELETE FROM sliders WHERE id = $1 RETURNING *',
                     [req.params.id]
                 );
+
                 if (rows.length > 0) {
+                    // Delete image from R2 (non-blocking, log errors but don't fail the request)
+                    if (imageKeys.length > 0) {
+                        deleteObjects(imageKeys).catch(err => {
+                            console.error('Failed to delete slider image from R2:', err);
+                        });
+                    }
+
                     return apiResponse.success(res, { message: 'Slider silindi', slider: rows[0] });
                 }
             }

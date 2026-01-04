@@ -20,7 +20,7 @@ let createForumPostSchema;
 let createNewsSchema, updateNewsSchema;
 let createSliderSchema, updateSliderSchema;
 let sendNotificationSchema;
-let presignUploadSchema;
+let presignUploadSchema, deleteUploadSchema;
 let apiResponse;
 
 try {
@@ -54,6 +54,7 @@ try {
 
     const uploadsValidationModule = require('./validation/uploads');
     presignUploadSchema = uploadsValidationModule.presignUploadSchema;
+    deleteUploadSchema = uploadsValidationModule.deleteUploadSchema;
 } catch (e) {
     console.warn('⚠️  Some security modules not installed. Run: npm install zod helmet express-rate-limit');
     helmet = () => (req, res, next) => next();
@@ -82,6 +83,7 @@ try {
     updateSliderSchema = {};
     sendNotificationSchema = {};
     presignUploadSchema = {};
+    deleteUploadSchema = {};
 }
 
 const app = express();
@@ -395,6 +397,7 @@ const uploadsRouter = createUploadsRouter({
     adminLimiter,
     validate,
     presignUploadSchema,
+    deleteUploadSchema,
     apiResponse,
 });
 app.use('/uploads', uploadsRouter);

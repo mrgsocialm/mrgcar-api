@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db');
 const { requireAdmin } = require('../middleware/auth');
 const { mapCarRow } = require('../utils/helpers');
+const { extractKeyFromPublicUrl, deleteObjects } = require('../services/r2');
 
 // Factory function that creates router with injected middleware
 function createCarsRouter(middlewares) {

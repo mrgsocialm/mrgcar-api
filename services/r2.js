@@ -3,7 +3,7 @@
  * Handles presigned URL generation for secure uploads
  */
 
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, DeleteObjectCommand, DeleteObjectsCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
 // R2 Configuration from environment
@@ -90,10 +90,107 @@ function getPublicUrl(key) {
     return `${R2_PUBLIC_BASE_URL}/${cleanKey}`;
 }
 
+/**
+ * Extract key from public URL
+ * @param {string} publicUrl - Public URL of the file
+ * @returns {string|null} Key or null if URL doesn't match
+ */
+function extractKeyFromPublicUrl(publicUrl) {
+    if (!publicUrl || !R2_PUBLIC_BASE_URL) {
+        return null;
+    }
+    // Remove trailing slash from base URL
+    const baseUrl = R2_PUBLIC_BASE_URL.replace(/\/$/, '');
+    if (publicUrl.startsWith(baseUrl + '/')) {
+        return publicUrl.substring(baseUrl.length + 1);
+    }
+    return null;
+}
+
+/**
+ * Delete single object from R2
+ * @param {string} key - Object key to delete
+ * @returns {Promise<void>}
+ */
+async function deleteObject(key) {
+    const client = initializeR2Client();
+    if (!client) {
+        throw new Error('R2 client not initialized. Check environment variables.');
+    }
+
+    if (!R2_BUCKET) {
+        throw new Error('R2_BUCKET not configured');
+    }
+
+    // Security: prevent path traversal
+    if (key.includes('..') || key.startsWith('/') || key.includes('\\')) {
+        throw new Error('Invalid key. Path traversal not allowed.');
+    }
+
+    try {
+        const command = new DeleteObjectCommand({
+            Bucket: R2_BUCKET,
+            Key: key,
+        });
+
+        await client.send(command);
+        console.log(`✅ Deleted R2 object: ${key}`);
+    } catch (error) {
+        console.error(`❌ Failed to delete R2 object ${key}:`, error);
+        throw new Error(`Failed to delete object: ${error.message}`);
+    }
+}
+
+/**
+ * Delete multiple objects from R2
+ * @param {string[]} keys - Array of object keys to delete
+ * @returns {Promise<{deleted: string[], errors: Array<{key: string, error: string}>}>}
+ */
+async function deleteObjects(keys) {
+    if (!Array.isArray(keys) || keys.length === 0) {
+        return { deleted: [], errors: [] };
+    }
+
+    const client = initializeR2Client();
+    if (!client) {
+        throw new Error('R2 client not initialized. Check environment variables.');
+    }
+
+    if (!R2_BUCKET) {
+        throw new Error('R2_BUCKET not configured');
+    }
+
+    // Security: validate all keys
+    for (const key of keys) {
+        if (key.includes('..') || key.startsWith('/') || key.includes('\\')) {
+            throw new Error(`Invalid key: ${key}. Path traversal not allowed.`);
+        }
+    }
+
+    const deleted = [];
+    const errors = [];
+
+    // R2 supports up to 1000 objects per DeleteObjects call
+    // For simplicity, we'll delete one by one (can be optimized later)
+    for (const key of keys) {
+        try {
+            await deleteObject(key);
+            deleted.push(key);
+        } catch (error) {
+            errors.push({ key, error: error.message });
+        }
+    }
+
+    return { deleted, errors };
+}
+
 module.exports = {
     initializeR2Client,
     generatePresignedUploadUrl,
     getPublicUrl,
+    extractKeyFromPublicUrl,
+    deleteObject,
+    deleteObjects,
     isConfigured: () => !!(R2_ENDPOINT && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_BUCKET),
 };
 

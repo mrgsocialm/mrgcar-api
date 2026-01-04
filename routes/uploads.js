@@ -7,7 +7,7 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 const { requireAdmin } = require('../middleware/auth');
-const { generatePresignedUploadUrl, getPublicUrl, isConfigured } = require('../services/r2');
+const { generatePresignedUploadUrl, getPublicUrl, isConfigured, deleteObjects, extractKeyFromPublicUrl } = require('../services/r2');
 
 function createUploadsRouter(middlewares) {
     const router = express.Router();
@@ -99,6 +99,60 @@ function createUploadsRouter(middlewares) {
         } catch (error) {
             console.error('POST /uploads/presign error:', error);
             return apiResponse.errors.serverError(res, `Presigned URL oluşturulurken hata oluştu: ${error.message}`);
+        }
+    });
+
+    /**
+     * DELETE /uploads
+     * Delete objects from R2 storage
+     * Body: { key: string } or { keys: string[] }
+     */
+    router.delete('/', adminLimiter, requireAdmin, validate(deleteUploadSchema), async (req, res) => {
+        try {
+            // Check if R2 is configured
+            if (!isConfigured()) {
+                return apiResponse.errors.serverError(res, 'R2 storage is not configured. Please check environment variables.');
+            }
+
+            const { key, keys } = req.validatedBody || req.body;
+
+            // Build list of keys to delete
+            const keysToDelete = keys && keys.length > 0 ? keys : (key ? [key] : []);
+
+            if (keysToDelete.length === 0) {
+                return apiResponse.errors.badRequest(res, 'Either "key" or "keys" array must be provided');
+            }
+
+            // Validate all keys (prevent path traversal)
+            for (const k of keysToDelete) {
+                if (k.includes('..') || k.startsWith('/') || k.includes('\\')) {
+                    return apiResponse.errors.badRequest(res, `Invalid key: ${k}. Path traversal not allowed.`);
+                }
+            }
+
+            // Delete objects from R2
+            const result = await deleteObjects(keysToDelete);
+
+            if (result.errors.length > 0) {
+                console.warn('Some objects failed to delete:', result.errors);
+                // Still return success if at least some were deleted
+                if (result.deleted.length === 0) {
+                    return apiResponse.errors.serverError(res, `Failed to delete objects: ${result.errors.map(e => e.error).join(', ')}`);
+                }
+                return apiResponse.success(res, {
+                    deleted: result.deleted,
+                    errors: result.errors,
+                    message: `Deleted ${result.deleted.length} object(s), ${result.errors.length} failed`,
+                });
+            }
+
+            return apiResponse.success(res, {
+                deleted: result.deleted,
+                message: `Successfully deleted ${result.deleted.length} object(s)`,
+            });
+        } catch (error) {
+            console.error('DELETE /uploads error:', error);
+            return apiResponse.errors.serverError(res, `Dosya silinirken hata oluştu: ${error.message}`);
         }
     });
 

@@ -1,6 +1,7 @@
 const express = require('express');
 const pool = require('../db');
 const { requireAdmin } = require('../middleware/auth');
+const { extractKeyFromPublicUrl, deleteObjects } = require('../services/r2');
 
 // Factory function that creates router with injected middleware
 function createNewsRouter(middlewares) {
@@ -115,11 +116,39 @@ function createNewsRouter(middlewares) {
     // DELETE /news/:id - Delete news (admin only)
     router.delete('/:id', adminLimiter, requireAdmin, async (req, res) => {
         try {
+            // First, get the news to extract image URL before deletion
+            const { rows: newsRows } = await pool.query(
+                'SELECT * FROM news WHERE id = $1',
+                [req.params.id]
+            );
+
+            if (newsRows.length === 0) {
+                return apiResponse.errors.notFound(res, 'Haber');
+            }
+
+            const news = newsRows[0];
+            const imageKeys = [];
+
+            // Extract image key from R2 public URL
+            if (news.image && typeof news.image === 'string') {
+                const key = extractKeyFromPublicUrl(news.image);
+                if (key) imageKeys.push(key);
+            }
+
+            // Delete from database
             const { rows } = await pool.query(
                 'DELETE FROM news WHERE id = $1 RETURNING *',
                 [req.params.id]
             );
+
             if (rows.length > 0) {
+                // Delete image from R2 (non-blocking, log errors but don't fail the request)
+                if (imageKeys.length > 0) {
+                    deleteObjects(imageKeys).catch(err => {
+                        console.error('Failed to delete news image from R2:', err);
+                    });
+                }
+
                 return apiResponse.success(res, { message: 'Haber silindi', news: rows[0] });
             } else {
                 return apiResponse.errors.notFound(res, 'Haber');

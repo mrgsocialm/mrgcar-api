@@ -64,6 +64,60 @@ function createUsersRouter(middlewares) {
         }
     });
 
+    // PATCH /users/:id - Update user (admin only)
+    router.patch('/:id', adminLimiter, requireAdmin, async (req, res) => {
+        try {
+            const { name, avatar_url, role, status } = req.body;
+
+            // Build update query dynamically
+            const updates = [];
+            const values = [];
+            let paramIndex = 1;
+
+            if (name !== undefined) {
+                updates.push(`name = $${paramIndex++}`);
+                values.push(name);
+            }
+            if (avatar_url !== undefined) {
+                updates.push(`avatar_url = $${paramIndex++}`);
+                values.push(avatar_url);
+            }
+            if (role !== undefined) {
+                updates.push(`role = $${paramIndex++}`);
+                values.push(role);
+            }
+            if (status !== undefined) {
+                updates.push(`status = $${paramIndex++}`);
+                values.push(status);
+            }
+
+            if (updates.length === 0) {
+                return apiResponse.errors.badRequest(res, 'Güncellenecek alan belirtilmedi');
+            }
+
+            updates.push(`updated_at = NOW()`);
+            values.push(req.params.id);
+
+            const query = `
+                UPDATE users 
+                SET ${updates.join(', ')}
+                WHERE id = $${paramIndex}
+                RETURNING *
+            `;
+
+            const { rows } = await pool.query(query, values);
+
+            if (rows.length > 0) {
+                return apiResponse.success(res, rows[0]);
+            } else {
+                return apiResponse.errors.notFound(res, 'Kullanıcı');
+            }
+        } catch (err) {
+            console.error('PATCH /users/:id error:', err);
+            return apiResponse.errors.serverError(res, `Kullanıcı güncellenirken hata oluştu: ${err.message}`);
+        }
+    });
+
     return router;
 }
 

@@ -13,7 +13,7 @@ const ALLOWED_CONTENT_TYPES = [
 ];
 
 // Allowed folders
-const ALLOWED_FOLDERS = ['cars', 'news', 'sliders', 'misc'];
+const ALLOWED_FOLDERS = ['cars', 'news', 'sliders', 'profiles', 'banners'];
 
 /**
  * Presign upload request schema
@@ -35,7 +35,7 @@ const presignUploadSchema = z.object({
             (val) => ALLOWED_CONTENT_TYPES.includes(val.toLowerCase()),
             { message: `Invalid content type. Allowed: ${ALLOWED_CONTENT_TYPES.join(', ')}` }
         ),
-    folder: z.enum(ALLOWED_FOLDERS).optional().default('misc'),
+    folder: z.enum(ALLOWED_FOLDERS),
     // Optional: For cars folder, organize by make/model
     make: z.string().optional(),
     model: z.string().optional(),

@@ -27,10 +27,21 @@ function createUploadsRouter(middlewares) {
 
             const { filename, contentType, folder, make, model } = req.validatedBody || req.body;
 
+            // Validate folder (prevent path traversal and unauthorized folders)
+            const ALLOWED_FOLDERS = ['cars', 'news', 'sliders', 'profiles', 'banners'];
+            if (!ALLOWED_FOLDERS.includes(folder)) {
+                return apiResponse.errors.badRequest(res, `Invalid folder. Allowed: ${ALLOWED_FOLDERS.join(', ')}`);
+            }
+
             // Extract file extension (prevent path traversal)
             const ext = path.extname(filename).toLowerCase().slice(1); // Remove leading dot
             if (!['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
                 return apiResponse.errors.badRequest(res, 'Invalid file extension. Allowed: jpg, jpeg, png, webp');
+            }
+
+            // Additional path traversal protection: ensure filename doesn't contain path separators
+            if (filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+                return apiResponse.errors.badRequest(res, 'Invalid filename. Path traversal not allowed.');
             }
 
             // Sanitize make and model for folder names (remove special chars, lowercase, replace spaces with hyphens)
@@ -64,8 +75,14 @@ function createUploadsRouter(middlewares) {
                     key = `${folder}/${year}/${month}/${timestamp}-${random}.${ext}`;
                 }
             } else {
-                // Default structure for other folders or cars without make/model
+                // Default structure for other folders (news, sliders, profiles, banners) or cars without make/model
+                // Simple structure: folder/yyyy/mm/timestamp-random.ext
                 key = `${folder}/${year}/${month}/${timestamp}-${random}.${ext}`;
+            }
+
+            // Final path traversal check: ensure key doesn't contain dangerous patterns
+            if (key.includes('..') || key.startsWith('/') || key.includes('\\')) {
+                return apiResponse.errors.badRequest(res, 'Invalid key generated. Security check failed.');
             }
 
             // Generate presigned URL (expires in 60 seconds)

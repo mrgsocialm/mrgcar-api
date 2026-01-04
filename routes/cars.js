@@ -4,6 +4,79 @@ const { requireAdmin } = require('../middleware/auth');
 const { mapCarRow } = require('../utils/helpers');
 const { extractKeyFromPublicUrl, deleteObjects } = require('../services/r2');
 
+// Transform admin panel data format to app format
+function transformCarDataForApp(data) {
+    if (!data || typeof data !== 'object') return data;
+    
+    const transformed = { ...data };
+    
+    // Transform specifications if they exist
+    if (data.specifications && typeof data.specifications === 'object') {
+        const specs = data.specifications;
+        const appSpecs = {};
+        
+        // Motor bilgileri
+        if (specs.engine) appSpecs['Motor Kodu'] = specs.engine;
+        if (specs.engineCapacity) appSpecs['Motor Hacmi'] = specs.engineCapacity;
+        if (specs.cylinders !== undefined) appSpecs['Silindir Sayısı'] = specs.cylinders.toString();
+        if (specs.valves) appSpecs['Supap Sayısı'] = specs.valves;
+        if (specs.power) appSpecs['Güç'] = specs.power;
+        if (specs.torque) appSpecs['Tork'] = specs.torque;
+        if (specs.transmission) appSpecs['Şanzıman'] = specs.transmission;
+        if (specs.drivetrain) appSpecs['Sürüş Tipi'] = specs.drivetrain;
+        if (specs.fuelType) appSpecs['Yakıt Tipi'] = specs.fuelType;
+        if (specs.fuelCapacity) appSpecs['Yakıt Deposu'] = specs.fuelCapacity;
+        
+        // Boyutlar
+        if (specs.length) appSpecs['Uzunluk'] = specs.length;
+        if (specs.width) appSpecs['Genişlik'] = specs.width;
+        if (specs.height) appSpecs['Yükseklik'] = specs.height;
+        if (specs.wheelbase) appSpecs['Aks Mesafesi'] = specs.wheelbase;
+        if (specs.weight) appSpecs['Ağırlık'] = specs.weight;
+        if (specs.trunkCapacity) appSpecs['Bagaj Hacmi'] = specs.trunkCapacity;
+        
+        // Güvenlik
+        if (specs.airbags) appSpecs['Hava Yastığı'] = specs.airbags;
+        if (specs.abs) appSpecs['ABS'] = specs.abs;
+        if (specs.esp) appSpecs['ESP'] = specs.esp;
+        if (specs.isofix) appSpecs['ISOFIX'] = specs.isofix;
+        
+        // Konfor ve Teknoloji
+        if (specs.climateControl) appSpecs['Klima'] = specs.climateControl;
+        if (specs.navigation) appSpecs['Navigasyon'] = specs.navigation;
+        if (specs.bluetooth) appSpecs['Bluetooth'] = specs.bluetooth;
+        if (specs.wirelessCharging) appSpecs['Kablosuz Şarj'] = specs.wirelessCharging;
+        
+        // Merge with existing specifications (if any)
+        transformed.specifications = { ...appSpecs, ...(data.specifications || {}) };
+    }
+    
+    // Transform performance data (admin panel sends as performanceData)
+    const perfData = data.performanceData || data.performance;
+    if (perfData && typeof perfData === 'object') {
+        if (!transformed.specifications) transformed.specifications = {};
+        
+        if (perfData.acceleration) transformed.specifications['0-100 km/s'] = perfData.acceleration;
+        if (perfData.topSpeed) transformed.specifications['Maks. Hız'] = perfData.topSpeed;
+    }
+    
+    // Transform efficiency data (admin panel sends as efficiencyData)
+    const effData = data.efficiencyData || data.efficiency;
+    if (effData && typeof effData === 'object') {
+        if (!transformed.specifications) transformed.specifications = {};
+        
+        if (effData.city) transformed.specifications['Yakıt Tüketimi (Şehir)'] = effData.city;
+        if (effData.highway) transformed.specifications['Yakıt Tüketimi (Yol)'] = effData.highway;
+        if (effData.combined) transformed.specifications['Yakıt Tüketimi (Karma)'] = effData.combined;
+    }
+    
+    // Keep original performanceData and efficiencyData for backward compatibility
+    if (data.performanceData) transformed.performanceData = data.performanceData;
+    if (data.efficiencyData) transformed.efficiencyData = data.efficiencyData;
+    
+    return transformed;
+}
+
 // Factory function that creates router with injected middleware
 function createCarsRouter(middlewares) {
     const router = express.Router();
@@ -101,11 +174,14 @@ function createCarsRouter(middlewares) {
         try {
             const { make, model, variant, bodyType, status, data } = req.validatedBody || req.body;
 
+            // Transform admin panel data format to app format
+            const transformedData = transformCarDataForApp(data || {});
+
             const { rows } = await pool.query(
                 `INSERT INTO cars (make, model, variant, body_type, status, data)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb)
          RETURNING *`,
-                [make, model, variant || null, bodyType || null, status || 'draft', JSON.stringify(data || {})]
+                [make, model, variant || null, bodyType || null, status || 'draft', JSON.stringify(transformedData)]
             );
 
             return apiResponse.success(res, mapCarRow(rows[0]), 201);
@@ -167,8 +243,10 @@ function createCarsRouter(middlewares) {
                 values.push(status);
             }
             if (data !== undefined) {
+                // Transform admin panel data format to app format
+                const transformedData = transformCarDataForApp(data);
                 updates.push(`data = $${paramIndex++}::jsonb`);
-                values.push(JSON.stringify(data));
+                values.push(JSON.stringify(transformedData));
             }
             if (showInSlider !== undefined) {
                 updates.push(`show_in_slider = $${paramIndex++}`);

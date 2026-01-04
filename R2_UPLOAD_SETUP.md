@@ -138,3 +138,4 @@ The component supports:
 - Only image/jpeg, image/jpg, image/png, image/webp allowed
 - Check file MIME type matches contentType parameter
 
+

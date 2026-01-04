@@ -25,7 +25,7 @@ function createUploadsRouter(middlewares) {
                 return apiResponse.errors.serverError(res, 'R2 storage is not configured. Please check environment variables.');
             }
 
-            const { filename, contentType, folder } = req.validatedBody || req.body;
+            const { filename, contentType, folder, make, model } = req.validatedBody || req.body;
 
             // Extract file extension (prevent path traversal)
             const ext = path.extname(filename).toLowerCase().slice(1); // Remove leading dot
@@ -33,13 +33,40 @@ function createUploadsRouter(middlewares) {
                 return apiResponse.errors.badRequest(res, 'Invalid file extension. Allowed: jpg, jpeg, png, webp');
             }
 
-            // Generate unique key: folder/yyyy/mm/timestamp-random.ext
+            // Sanitize make and model for folder names (remove special chars, lowercase, replace spaces with hyphens)
+            function sanitizeFolderName(str) {
+                if (!str) return null;
+                return str
+                    .toLowerCase()
+                    .trim()
+                    .replace(/[^a-z0-9\s-]/g, '') // Remove special chars except spaces and hyphens
+                    .replace(/\s+/g, '-') // Replace spaces with hyphens
+                    .replace(/-+/g, '-') // Replace multiple hyphens with single
+                    .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
+            }
+
+            // Generate unique key
             const now = new Date();
             const year = now.getFullYear();
             const month = String(now.getMonth() + 1).padStart(2, '0');
             const timestamp = now.getTime();
             const random = crypto.randomBytes(8).toString('hex');
-            const key = `${folder}/${year}/${month}/${timestamp}-${random}.${ext}`;
+            
+            let key;
+            // For cars folder, organize by make/model if provided
+            if (folder === 'cars' && make && model) {
+                const sanitizedMake = sanitizeFolderName(make);
+                const sanitizedModel = sanitizeFolderName(model);
+                if (sanitizedMake && sanitizedModel) {
+                    key = `${folder}/${sanitizedMake}/${sanitizedModel}/${year}/${month}/${timestamp}-${random}.${ext}`;
+                } else {
+                    // Fallback to default structure if sanitization fails
+                    key = `${folder}/${year}/${month}/${timestamp}-${random}.${ext}`;
+                }
+            } else {
+                // Default structure for other folders or cars without make/model
+                key = `${folder}/${year}/${month}/${timestamp}-${random}.${ext}`;
+            }
 
             // Generate presigned URL (expires in 60 seconds)
             const uploadUrl = await generatePresignedUploadUrl(key, contentType, 60);

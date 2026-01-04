@@ -36,6 +36,9 @@ const presignUploadSchema = z.object({
             { message: `Invalid content type. Allowed: ${ALLOWED_CONTENT_TYPES.join(', ')}` }
         ),
     folder: z.enum(ALLOWED_FOLDERS).optional().default('misc'),
+    // Optional: For cars folder, organize by make/model
+    make: z.string().optional(),
+    model: z.string().optional(),
 });
 
 module.exports = {

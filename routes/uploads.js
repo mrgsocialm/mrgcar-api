@@ -11,7 +11,7 @@ const { generatePresignedUploadUrl, getPublicUrl, isConfigured, deleteObjects, e
 
 function createUploadsRouter(middlewares) {
     const router = express.Router();
-    const { adminLimiter, validate, presignUploadSchema, apiResponse } = middlewares;
+    const { adminLimiter, validate, presignUploadSchema, deleteUploadSchema, apiResponse } = middlewares;
 
     /**
      * POST /uploads/presign

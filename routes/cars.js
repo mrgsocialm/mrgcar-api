@@ -211,11 +211,64 @@ function createCarsRouter(middlewares) {
     // DELETE /cars/:id (admin korumalı)
     router.delete("/:id", adminLimiter, requireAdmin, async (req, res) => {
         try {
+            // First, get the car to extract image URLs before deletion
+            const { rows: carRows } = await pool.query(
+                "SELECT * FROM cars WHERE id = $1",
+                [req.params.id]
+            );
+
+            if (carRows.length === 0) {
+                return apiResponse.errors.notFound(res, 'Araç');
+            }
+
+            const car = mapCarRow(carRows[0]);
+            
+            // Extract image keys from R2 public URLs
+            const imageKeys = [];
+            if (car.data) {
+                const data = typeof car.data === 'string' ? JSON.parse(car.data) : car.data;
+                
+                // Extract from imageUrls array
+                if (data.imageUrls && Array.isArray(data.imageUrls)) {
+                    for (const url of data.imageUrls) {
+                        if (url && typeof url === 'string') {
+                            const key = extractKeyFromPublicUrl(url);
+                            if (key) imageKeys.push(key);
+                        }
+                    }
+                }
+                
+                // Extract from imageUrl (single)
+                if (data.imageUrl && typeof data.imageUrl === 'string') {
+                    const key = extractKeyFromPublicUrl(data.imageUrl);
+                    if (key) imageKeys.push(key);
+                }
+                
+                // Extract from images array (legacy)
+                if (data.images && Array.isArray(data.images)) {
+                    for (const url of data.images) {
+                        if (url && typeof url === 'string') {
+                            const key = extractKeyFromPublicUrl(url);
+                            if (key) imageKeys.push(key);
+                        }
+                    }
+                }
+            }
+
+            // Delete from database
             const { rows } = await pool.query(
                 "DELETE FROM cars WHERE id = $1 RETURNING *",
                 [req.params.id]
             );
+
             if (rows.length > 0) {
+                // Delete images from R2 (non-blocking, log errors but don't fail the request)
+                if (imageKeys.length > 0) {
+                    deleteObjects(imageKeys).catch(err => {
+                        console.error('Failed to delete car images from R2:', err);
+                    });
+                }
+
                 return apiResponse.success(res, { message: 'Araç silindi', car: mapCarRow(rows[0]) });
             } else {
                 return apiResponse.errors.notFound(res, 'Araç');

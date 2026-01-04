@@ -20,6 +20,7 @@ let createForumPostSchema;
 let createNewsSchema, updateNewsSchema;
 let createSliderSchema, updateSliderSchema;
 let sendNotificationSchema;
+let presignUploadSchema;
 let apiResponse;
 
 try {
@@ -50,6 +51,9 @@ try {
 
     const notificationsValidationModule = require('./validation/notifications');
     sendNotificationSchema = notificationsValidationModule.sendNotificationSchema;
+
+    const uploadsValidationModule = require('./validation/uploads');
+    presignUploadSchema = uploadsValidationModule.presignUploadSchema;
 } catch (e) {
     console.warn('⚠️  Some security modules not installed. Run: npm install zod helmet express-rate-limit');
     helmet = () => (req, res, next) => next();
@@ -77,6 +81,7 @@ try {
     createSliderSchema = {};
     updateSliderSchema = {};
     sendNotificationSchema = {};
+    presignUploadSchema = {};
 }
 
 const app = express();
@@ -383,6 +388,16 @@ const usersRouter = createUsersRouter({
     apiResponse,
 });
 app.use('/users', usersRouter);
+
+// Import and mount uploads router
+const createUploadsRouter = require('./routes/uploads');
+const uploadsRouter = createUploadsRouter({
+    adminLimiter,
+    validate,
+    presignUploadSchema,
+    apiResponse,
+});
+app.use('/uploads', uploadsRouter);
 
 // Export app and dependencies for other modules and tests
 module.exports = {

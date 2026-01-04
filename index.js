@@ -21,5 +21,6 @@ app.listen(PORT, () => {
   console.log('  /sliders              (Sliders Router)');
   console.log('  /notifications        (Notifications Router)');
   console.log('  /users                (Users Router)');
+  console.log('  /uploads              (Uploads Router)');
   console.log('-------------------------\n');
 });

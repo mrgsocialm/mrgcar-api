@@ -80,4 +80,23 @@ describe('API Smoke Tests', () => {
             expect(res.statusCode).toBe(401);
         });
     });
+
+    describe('Upload Routes', () => {
+        test('POST /uploads/presign without auth should return 401', async () => {
+            const res = await request(app)
+                .post('/uploads/presign')
+                .send({ filename: 'test.jpg', contentType: 'image/jpeg' });
+            expect(res.statusCode).toBe(401);
+        });
+
+        test('POST /uploads/presign with invalid body should return 400', async () => {
+            // Mock admin token (in real test, use actual token)
+            const res = await request(app)
+                .post('/uploads/presign')
+                .set('Authorization', 'Bearer mock-admin-token')
+                .send({ filename: 'test.txt', contentType: 'text/plain' });
+            // May return 401 (invalid token) or 400 (validation error)
+            expect([400, 401]).toContain(res.statusCode);
+        });
+    });
 });

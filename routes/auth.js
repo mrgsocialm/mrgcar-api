@@ -54,7 +54,7 @@ function createAuthRouter(deps) {
 
         try {
             const result = await pool.query(
-                'SELECT id, email, name, password_hash FROM users WHERE email = $1',
+                'SELECT id, email, name, password_hash, avatar_url, banner_url FROM users WHERE email = $1',
                 [email]
             );
 
@@ -74,7 +74,9 @@ function createAuthRouter(deps) {
                     user: {
                         id: user.id,
                         name: user.name,
-                        email: user.email
+                        email: user.email,
+                        avatar_url: user.avatar_url,
+                        banner_url: user.banner_url
                     },
                     accessToken,
                     refreshToken

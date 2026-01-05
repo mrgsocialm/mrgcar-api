@@ -96,9 +96,9 @@ app.use((req, res, next) => {
     if (req.method === 'OPTIONS') {
         const origin = req.headers.origin;
         // Allow all mrgcar.com subdomains, localhost, and common dev origins
-        const isAllowed = !origin || 
-            origin.includes('localhost') || 
-            origin.includes('127.0.0.1') || 
+        const isAllowed = !origin ||
+            origin.includes('localhost') ||
+            origin.includes('127.0.0.1') ||
             origin.includes('10.0.2.2') ||
             origin.includes('192.168.') ||
             origin.includes('172.') ||
@@ -106,7 +106,7 @@ app.use((req, res, next) => {
             origin === 'https://mrgcar.com' ||
             origin === 'https://admin.mrgcar.com' ||
             origin === 'https://api.mrgcar.com';
-        
+
         if (isAllowed) {
             res.header('Access-Control-Allow-Origin', origin || '*');
             res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
@@ -127,8 +127,8 @@ if (!JWT_SECRET && process.env.NODE_ENV !== 'test') {
     process.exit(1);
 }
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || (JWT_SECRET || 'test') + '-refresh';
-const ACCESS_TOKEN_EXPIRY = '15m';
-const REFRESH_TOKEN_EXPIRY = '7d';
+const ACCESS_TOKEN_EXPIRY = '30d'; // 30 gün - mobil uygulama için uzun süre
+const REFRESH_TOKEN_EXPIRY = '90d'; // 90 gün
 
 // Token generation functions
 function generateAccessToken(user) {
@@ -172,8 +172,8 @@ const corsOptions = {
         }
 
         // Allow localhost, 127.0.0.1, and Android emulator (10.0.2.2)
-        if (origin.includes('localhost') || 
-            origin.includes('127.0.0.1') || 
+        if (origin.includes('localhost') ||
+            origin.includes('127.0.0.1') ||
             origin.includes('10.0.2.2') ||
             origin.includes('192.168.') ||
             origin.includes('172.') ||

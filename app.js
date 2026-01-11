@@ -371,6 +371,15 @@ const slidersRouter = createSlidersRouter({
 });
 app.use('/sliders', slidersRouter);
 
+// Import and mount reviews router
+const createReviewsRouter = require('./routes/reviews');
+const reviewsRouter = createReviewsRouter({
+    publicLimiter,
+    adminLimiter,
+    apiResponse,
+});
+app.use('/reviews', reviewsRouter);
+
 // Import and mount notifications router
 const createNotificationsRouter = require('./routes/notifications');
 const notificationsRouter = createNotificationsRouter({

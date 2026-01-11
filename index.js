@@ -19,6 +19,7 @@ app.listen(PORT, () => {
   console.log('  /news                 (News Router)');
   console.log('  /forum                (Forum Router)');
   console.log('  /sliders              (Sliders Router)');
+  console.log('  /reviews              (Reviews Router)');
   console.log('  /notifications        (Notifications Router)');
   console.log('  /users                (Users Router)');
   console.log('  /uploads              (Uploads Router)');

@@ -166,10 +166,16 @@ function createNewsRouter(middlewares) {
         try {
             const { newsId } = req.params;
             const { rows } = await pool.query(
-                `SELECT id, news_id, user_id, user_name, content, likes, parent_id, created_at, updated_at 
-                 FROM news_comments 
-                 WHERE news_id = $1 
-                 ORDER BY created_at ASC`,
+                `SELECT 
+                    nc.id, nc.news_id, nc.user_id, nc.user_name, nc.content, nc.likes, nc.parent_id, 
+                    nc.created_at, nc.updated_at, nc.reply_to_user_id,
+                    u.username as user_username, u.avatar_url as user_avatar,
+                    ru.username as reply_to_username
+                 FROM news_comments nc
+                 LEFT JOIN users u ON nc.user_id = u.id
+                 LEFT JOIN users ru ON nc.reply_to_user_id = ru.id
+                 WHERE nc.news_id = $1 
+                 ORDER BY nc.created_at ASC`,
                 [newsId]
             );
 
@@ -178,10 +184,20 @@ function createNewsRouter(middlewares) {
                 id: row.id,
                 newsId: row.news_id,
                 userId: row.user_id,
-                userName: row.user_name,
+                userName: row.user_name, // Keep existing field for compatibility
+                user: {
+                    id: row.user_id,
+                    username: row.user_username || row.user_name,
+                    avatarUrl: row.user_avatar
+                },
                 content: row.content,
                 likes: row.likes || 0,
                 parentId: row.parent_id || null,
+                replyToUserId: row.reply_to_user_id || null,
+                replyToUser: row.reply_to_user_id ? {
+                    id: row.reply_to_user_id,
+                    username: row.reply_to_username
+                } : null,
                 createdAt: row.created_at,
                 updatedAt: row.updated_at,
                 isLiked: false, // Client will track this locally for now
@@ -216,11 +232,14 @@ function createNewsRouter(middlewares) {
             }
 
             // If parentId is provided, verify parent comment exists
+            let replyToUserId = null;
             if (parentId) {
-                const parentCheck = await pool.query('SELECT id FROM news_comments WHERE id = $1 AND news_id = $2', [parentId, newsId]);
+                const parentCheck = await pool.query('SELECT id, user_id FROM news_comments WHERE id = $1 AND news_id = $2', [parentId, newsId]);
                 if (parentCheck.rows.length === 0) {
                     return apiResponse.errors.notFound(res, 'Üst yorum');
                 }
+                // Set reply_to_user_id from the parent comment's author
+                replyToUserId = parentCheck.rows[0].user_id;
             }
 
             // Get user name from users table or use default
@@ -236,10 +255,10 @@ function createNewsRouter(middlewares) {
 
             // Insert comment with optional parentId
             const { rows } = await pool.query(
-                `INSERT INTO news_comments (news_id, user_id, user_name, content, parent_id)
-                 VALUES ($1, $2, $3, $4, $5)
+                `INSERT INTO news_comments (news_id, user_id, user_name, content, parent_id, reply_to_user_id)
+                 VALUES ($1, $2, $3, $4, $5, $6)
                  RETURNING *`,
-                [newsId, userId, userName, content.trim(), parentId || null]
+                [newsId, userId, userName, content.trim(), parentId || null, replyToUserId]
             );
 
             const comment = {
@@ -250,6 +269,9 @@ function createNewsRouter(middlewares) {
                 content: rows[0].content,
                 likes: rows[0].likes || 0,
                 parentId: rows[0].parent_id || null,
+                replyToUserId: rows[0].reply_to_user_id || null,
+                // For a newly created comment, we can return basic structure. 
+                // Detailed objects (user, replyToUser) are usually fetched on reload or optimistic update in UI.
                 createdAt: rows[0].created_at,
                 updatedAt: rows[0].updated_at,
                 isLiked: false,

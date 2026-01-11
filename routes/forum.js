@@ -184,23 +184,40 @@ function createForumRouter(middlewares) {
     router.get('/posts/:postId/replies', publicLimiter, async (req, res) => {
         try {
             const { postId } = req.params;
-            const { rows } = await pool.query(
-                `SELECT id, post_id, user_id, user_name, content, likes, parent_id, created_at, updated_at 
-                 FROM forum_replies 
-                 WHERE post_id = $1 
-                 ORDER BY created_at ASC`,
-                [postId]
-            );
+            // Join with users again to get reply_to_user details and main user details properly
+            const query = `
+                SELECT 
+                    fr.id, fr.post_id, fr.user_id, fr.user_name, fr.content, fr.likes, fr.parent_id, 
+                    fr.created_at, fr.updated_at, fr.reply_to_user_id,
+                    u.username as user_username, u.avatar_url as user_avatar,
+                    ru.username as reply_to_username
+                FROM forum_replies fr
+                LEFT JOIN users u ON fr.user_id = u.id
+                LEFT JOIN users ru ON fr.reply_to_user_id = ru.id
+                WHERE fr.post_id = $1
+                ORDER BY fr.created_at ASC
+            `;
 
-            // Map to camelCase for frontend
+            const { rows } = await pool.query(query, [postId]);
+
             const replies = rows.map(row => ({
                 id: row.id,
                 postId: row.post_id,
                 userId: row.user_id,
                 userName: row.user_name,
+                user: {
+                    id: row.user_id,
+                    username: row.user_username || row.user_name,
+                    avatarUrl: row.user_avatar
+                },
                 content: row.content,
                 likes: row.likes || 0,
                 parentId: row.parent_id || null,
+                replyToUserId: row.reply_to_user_id || null,
+                replyToUser: row.reply_to_user_id ? {
+                    id: row.reply_to_user_id,
+                    username: row.reply_to_username
+                } : null,
                 createdAt: row.created_at,
                 updatedAt: row.updated_at,
                 isLiked: false, // Client will track this locally for now
@@ -235,11 +252,13 @@ function createForumRouter(middlewares) {
             }
 
             // If parentId is provided, verify parent reply exists
+            let replyToUserId = null;
             if (parentId) {
-                const parentCheck = await pool.query('SELECT id FROM forum_replies WHERE id = $1 AND post_id = $2', [parentId, postId]);
+                const parentCheck = await pool.query('SELECT id, user_id FROM forum_replies WHERE id = $1 AND post_id = $2', [parentId, postId]);
                 if (parentCheck.rows.length === 0) {
                     return apiResponse.errors.notFound(res, 'Üst cevap');
                 }
+                replyToUserId = parentCheck.rows[0].user_id;
             }
 
             // Get user name from users table or use default
@@ -255,10 +274,10 @@ function createForumRouter(middlewares) {
 
             // Insert reply with optional parentId
             const { rows } = await pool.query(
-                `INSERT INTO forum_replies (post_id, user_id, user_name, content, parent_id)
-                 VALUES ($1, $2, $3, $4, $5)
+                `INSERT INTO forum_replies (post_id, user_id, user_name, content, parent_id, reply_to_user_id)
+                 VALUES ($1, $2, $3, $4, $5, $6)
                  RETURNING *`,
-                [postId, userId, userName, content.trim(), parentId || null]
+                [postId, userId, userName, content.trim(), parentId || null, replyToUserId]
             );
 
             // Increment reply count on the post
@@ -275,6 +294,7 @@ function createForumRouter(middlewares) {
                 content: rows[0].content,
                 likes: rows[0].likes || 0,
                 parentId: rows[0].parent_id || null,
+                replyToUserId: rows[0].reply_to_user_id || null,
                 createdAt: rows[0].created_at,
                 updatedAt: rows[0].updated_at,
                 isLiked: false,

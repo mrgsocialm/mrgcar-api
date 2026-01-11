@@ -189,8 +189,8 @@ function createForumRouter(middlewares) {
                 SELECT 
                     fr.id, fr.post_id, fr.user_id, fr.user_name, fr.content, fr.likes, fr.parent_id, 
                     fr.created_at, fr.updated_at, fr.reply_to_user_id,
-                    u.username as user_username, u.avatar_url as user_avatar,
-                    ru.username as reply_to_username
+                    u.name as user_username, u.avatar_url as user_avatar,
+                    ru.name as reply_to_username
                 FROM forum_replies fr
                 LEFT JOIN users u ON fr.user_id = u.id
                 LEFT JOIN users ru ON fr.reply_to_user_id = ru.id

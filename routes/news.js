@@ -169,8 +169,8 @@ function createNewsRouter(middlewares) {
                 `SELECT 
                     nc.id, nc.news_id, nc.user_id, nc.user_name, nc.content, nc.likes, nc.parent_id, 
                     nc.created_at, nc.updated_at, nc.reply_to_user_id,
-                    u.username as user_username, u.avatar_url as user_avatar,
-                    ru.username as reply_to_username
+                    u.name as user_username, u.avatar_url as user_avatar,
+                    ru.name as reply_to_username
                  FROM news_comments nc
                  LEFT JOIN users u ON nc.user_id = u.id
                  LEFT JOIN users ru ON nc.reply_to_user_id = ru.id

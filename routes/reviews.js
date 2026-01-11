@@ -13,14 +13,8 @@ function createReviewsRouter(middlewares) {
             const { limit = 10, offset = 0, featured } = req.query;
 
             let query = `
-                SELECT r.*, c.brand, c.model, c.year, 
-                       ci.image as car_image,
-                       u.name as reviewer_name
+                SELECT r.*, u.name as reviewer_name
                 FROM reviews r
-                LEFT JOIN cars c ON r.car_id = c.id
-                LEFT JOIN LATERAL (
-                    SELECT image FROM car_images WHERE car_id = c.id LIMIT 1
-                ) ci ON true
                 LEFT JOIN users u ON r.user_id = u.id
                 WHERE COALESCE(r.status, 'published') = 'published'
             `;
@@ -41,16 +35,14 @@ function createReviewsRouter(middlewares) {
             const reviews = rows.map(row => ({
                 id: row.id,
                 carId: row.car_id,
-                carBrand: row.brand,
-                carModel: row.model,
-                carYear: row.year,
-                carImage: row.car_image,
                 userId: row.user_id,
-                reviewerName: row.reviewer_name || 'Anonim',
+                reviewerName: row.reviewer_name || row.author_name || 'Anonim',
+                authorName: row.author_name,
                 isAdminReview: row.is_admin_review,
                 rating: row.rating,
                 title: row.title,
                 content: row.content,
+                image: row.image,
                 pros: row.pros,
                 cons: row.cons,
                 isFeatured: row.is_featured,
@@ -73,14 +65,8 @@ function createReviewsRouter(middlewares) {
             const { limit = 10 } = req.query;
 
             const { rows } = await pool.query(`
-                SELECT r.*, c.brand, c.model, c.year,
-                       ci.image as car_image,
-                       u.name as reviewer_name
+                SELECT r.*, u.name as reviewer_name
                 FROM reviews r
-                LEFT JOIN cars c ON r.car_id = c.id
-                LEFT JOIN LATERAL (
-                    SELECT image FROM car_images WHERE car_id = c.id LIMIT 1
-                ) ci ON true
                 LEFT JOIN users u ON r.user_id = u.id
                 WHERE COALESCE(r.status, 'published') = 'published' AND r.is_featured = true
                 ORDER BY r.created_at DESC
@@ -90,16 +76,14 @@ function createReviewsRouter(middlewares) {
             const reviews = rows.map(row => ({
                 id: row.id,
                 carId: row.car_id,
-                carBrand: row.brand,
-                carModel: row.model,
-                carYear: row.year,
-                carImage: row.car_image,
                 userId: row.user_id,
-                reviewerName: row.reviewer_name || 'Anonim',
+                reviewerName: row.reviewer_name || row.author_name || 'Anonim',
+                authorName: row.author_name,
                 isAdminReview: row.is_admin_review,
                 rating: row.rating,
                 title: row.title,
                 content: row.content,
+                image: row.image,
                 pros: row.pros,
                 cons: row.cons,
                 isFeatured: row.is_featured,
@@ -118,11 +102,8 @@ function createReviewsRouter(middlewares) {
     router.get('/:id', publicLimiter, async (req, res) => {
         try {
             const { rows } = await pool.query(`
-                SELECT r.*, c.brand, c.model, c.year,
-                       (SELECT image FROM car_images ci WHERE ci.car_id = c.id LIMIT 1) as car_image,
-                       u.name as reviewer_name
+                SELECT r.*, u.name as reviewer_name
                 FROM reviews r
-                LEFT JOIN cars c ON r.car_id = c.id
                 LEFT JOIN users u ON r.user_id = u.id
                 WHERE r.id = $1
             `, [req.params.id]);
@@ -135,16 +116,14 @@ function createReviewsRouter(middlewares) {
             const review = {
                 id: row.id,
                 carId: row.car_id,
-                carBrand: row.brand,
-                carModel: row.model,
-                carYear: row.year,
-                carImage: row.car_image,
                 userId: row.user_id,
-                reviewerName: row.reviewer_name || 'Anonim',
+                reviewerName: row.reviewer_name || row.author_name || 'Anonim',
+                authorName: row.author_name,
                 isAdminReview: row.is_admin_review,
                 rating: row.rating,
                 title: row.title,
                 content: row.content,
+                image: row.image,
                 pros: row.pros,
                 cons: row.cons,
                 isFeatured: row.is_featured,
@@ -163,7 +142,7 @@ function createReviewsRouter(middlewares) {
     // POST /reviews - Create review (admin only)
     router.post('/', adminLimiter, requireAdmin, async (req, res) => {
         try {
-            const { carId, rating, title, content, pros, cons, isFeatured, isAdminReview } = req.body;
+            const { carId, rating, title, content, pros, cons, isFeatured, isAdminReview, image, authorName } = req.body;
 
             if (!title || !content) {
                 return apiResponse.errors.badRequest(res, 'Başlık ve içerik zorunludur');
@@ -174,10 +153,10 @@ function createReviewsRouter(middlewares) {
             }
 
             const { rows } = await pool.query(`
-                INSERT INTO reviews (car_id, rating, title, content, pros, cons, is_featured, is_admin_review, status)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'published')
+                INSERT INTO reviews (car_id, rating, title, content, pros, cons, is_featured, is_admin_review, image, author_name, status)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'published')
                 RETURNING *
-            `, [carId || null, rating || null, title, content, pros || null, cons || null, isFeatured || false, isAdminReview !== false]);
+            `, [carId || null, rating || null, title, content, pros || null, cons || null, isFeatured || false, isAdminReview !== false, image || null, authorName || null]);
 
             return apiResponse.success(res, rows[0], 201);
         } catch (err) {

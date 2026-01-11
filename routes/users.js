@@ -118,6 +118,80 @@ function createUsersRouter(middlewares) {
         }
     });
 
+    // PUT /users/:id/ban - Ban user permanently (admin only)
+    router.put('/:id/ban', adminLimiter, requireAdmin, async (req, res) => {
+        try {
+            const { rows } = await pool.query(
+                `UPDATE users SET status = 'banned', updated_at = NOW() WHERE id = $1 RETURNING id, email, name, status`,
+                [req.params.id]
+            );
+            if (rows.length > 0) {
+                return apiResponse.success(res, { message: 'Kullanıcı engellendi', user: rows[0] });
+            }
+            return apiResponse.errors.notFound(res, 'Kullanıcı');
+        } catch (err) {
+            console.error('PUT /users/:id/ban error:', err);
+            return apiResponse.errors.serverError(res, 'Kullanıcı engellenirken hata oluştu');
+        }
+    });
+
+    // PUT /users/:id/temp-ban - Ban user temporarily (admin only)
+    router.put('/:id/temp-ban', adminLimiter, requireAdmin, async (req, res) => {
+        try {
+            const { days } = req.body;
+            const banExpiry = new Date();
+            banExpiry.setDate(banExpiry.getDate() + (parseInt(days) || 7));
+
+            const { rows } = await pool.query(
+                `UPDATE users SET status = 'temp_banned', ban_expiry = $1, updated_at = NOW() WHERE id = $2 RETURNING id, email, name, status, ban_expiry`,
+                [banExpiry, req.params.id]
+            );
+            if (rows.length > 0) {
+                return apiResponse.success(res, { message: `Kullanıcı ${days} gün engellendi`, user: rows[0] });
+            }
+            return apiResponse.errors.notFound(res, 'Kullanıcı');
+        } catch (err) {
+            console.error('PUT /users/:id/temp-ban error:', err);
+            return apiResponse.errors.serverError(res, 'Geçici ban işlemi başarısız');
+        }
+    });
+
+    // PUT /users/:id/restrict - Restrict user features (admin only)
+    router.put('/:id/restrict', adminLimiter, requireAdmin, async (req, res) => {
+        try {
+            const { restrictions } = req.body; // ['forum', 'comments', 'uploads', 'messaging']
+
+            const { rows } = await pool.query(
+                `UPDATE users SET status = 'restricted', restrictions = $1, updated_at = NOW() WHERE id = $2 RETURNING id, email, name, status, restrictions`,
+                [JSON.stringify(restrictions || []), req.params.id]
+            );
+            if (rows.length > 0) {
+                return apiResponse.success(res, { message: 'Kullanıcı kısıtlandı', user: rows[0] });
+            }
+            return apiResponse.errors.notFound(res, 'Kullanıcı');
+        } catch (err) {
+            console.error('PUT /users/:id/restrict error:', err);
+            return apiResponse.errors.serverError(res, 'Kısıtlama işlemi başarısız');
+        }
+    });
+
+    // PUT /users/:id/unban - Remove ban from user (admin only)
+    router.put('/:id/unban', adminLimiter, requireAdmin, async (req, res) => {
+        try {
+            const { rows } = await pool.query(
+                `UPDATE users SET status = 'active', ban_expiry = NULL, restrictions = NULL, updated_at = NOW() WHERE id = $1 RETURNING id, email, name, status`,
+                [req.params.id]
+            );
+            if (rows.length > 0) {
+                return apiResponse.success(res, { message: 'Kullanıcı engeli kaldırıldı', user: rows[0] });
+            }
+            return apiResponse.errors.notFound(res, 'Kullanıcı');
+        } catch (err) {
+            console.error('PUT /users/:id/unban error:', err);
+            return apiResponse.errors.serverError(res, 'Engel kaldırma işlemi başarısız');
+        }
+    });
+
     return router;
 }
 

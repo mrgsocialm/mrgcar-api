@@ -185,7 +185,7 @@ function createForumRouter(middlewares) {
         try {
             const { postId } = req.params;
             const { rows } = await pool.query(
-                `SELECT id, post_id, user_id, user_name, content, likes, created_at, updated_at 
+                `SELECT id, post_id, user_id, user_name, content, likes, parent_id, created_at, updated_at 
                  FROM forum_replies 
                  WHERE post_id = $1 
                  ORDER BY created_at ASC`,
@@ -200,6 +200,7 @@ function createForumRouter(middlewares) {
                 userName: row.user_name,
                 content: row.content,
                 likes: row.likes || 0,
+                parentId: row.parent_id || null,
                 createdAt: row.created_at,
                 updatedAt: row.updated_at,
                 isLiked: false, // Client will track this locally for now
@@ -216,7 +217,7 @@ function createForumRouter(middlewares) {
     router.post('/posts/:postId/replies', publicLimiter, requireUser, async (req, res) => {
         try {
             const { postId } = req.params;
-            const { content } = req.body;
+            const { content, parentId } = req.body;
             const userId = req.user.userId;
 
             if (!content || content.trim().length === 0) {
@@ -233,6 +234,14 @@ function createForumRouter(middlewares) {
                 return apiResponse.errors.notFound(res, 'Forum gönderisi');
             }
 
+            // If parentId is provided, verify parent reply exists
+            if (parentId) {
+                const parentCheck = await pool.query('SELECT id FROM forum_replies WHERE id = $1 AND post_id = $2', [parentId, postId]);
+                if (parentCheck.rows.length === 0) {
+                    return apiResponse.errors.notFound(res, 'Üst cevap');
+                }
+            }
+
             // Get user name from users table or use default
             let userName = 'Anonim';
             try {
@@ -244,12 +253,12 @@ function createForumRouter(middlewares) {
                 console.warn('Could not fetch user name:', e.message);
             }
 
-            // Insert reply
+            // Insert reply with optional parentId
             const { rows } = await pool.query(
-                `INSERT INTO forum_replies (post_id, user_id, user_name, content)
-                 VALUES ($1, $2, $3, $4)
+                `INSERT INTO forum_replies (post_id, user_id, user_name, content, parent_id)
+                 VALUES ($1, $2, $3, $4, $5)
                  RETURNING *`,
-                [postId, userId, userName, content.trim()]
+                [postId, userId, userName, content.trim(), parentId || null]
             );
 
             // Increment reply count on the post
@@ -265,6 +274,7 @@ function createForumRouter(middlewares) {
                 userName: rows[0].user_name,
                 content: rows[0].content,
                 likes: rows[0].likes || 0,
+                parentId: rows[0].parent_id || null,
                 createdAt: rows[0].created_at,
                 updatedAt: rows[0].updated_at,
                 isLiked: false,

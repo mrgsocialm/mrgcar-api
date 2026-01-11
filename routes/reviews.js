@@ -14,12 +14,15 @@ function createReviewsRouter(middlewares) {
 
             let query = `
                 SELECT r.*, c.brand, c.model, c.year, 
-                       (SELECT image FROM car_images ci WHERE ci.car_id = c.id LIMIT 1) as car_image,
+                       ci.image as car_image,
                        u.name as reviewer_name
                 FROM reviews r
                 LEFT JOIN cars c ON r.car_id = c.id
+                LEFT JOIN LATERAL (
+                    SELECT image FROM car_images WHERE car_id = c.id LIMIT 1
+                ) ci ON true
                 LEFT JOIN users u ON r.user_id = u.id
-                WHERE r.status = 'published'
+                WHERE COALESCE(r.status, 'published') = 'published'
             `;
 
             const params = [];
@@ -59,7 +62,8 @@ function createReviewsRouter(middlewares) {
             return apiResponse.success(res, reviews);
         } catch (err) {
             console.error('GET /reviews error:', err);
-            return apiResponse.errors.serverError(res, 'İncelemeler yüklenirken hata oluştu');
+            console.error('Error details:', err.message, err.stack);
+            return apiResponse.errors.serverError(res, `İncelemeler yüklenirken hata oluştu: ${err.message}`);
         }
     });
 
@@ -70,12 +74,15 @@ function createReviewsRouter(middlewares) {
 
             const { rows } = await pool.query(`
                 SELECT r.*, c.brand, c.model, c.year,
-                       (SELECT image FROM car_images ci WHERE ci.car_id = c.id LIMIT 1) as car_image,
+                       ci.image as car_image,
                        u.name as reviewer_name
                 FROM reviews r
                 LEFT JOIN cars c ON r.car_id = c.id
+                LEFT JOIN LATERAL (
+                    SELECT image FROM car_images WHERE car_id = c.id LIMIT 1
+                ) ci ON true
                 LEFT JOIN users u ON r.user_id = u.id
-                WHERE r.status = 'published' AND r.is_featured = true
+                WHERE COALESCE(r.status, 'published') = 'published' AND r.is_featured = true
                 ORDER BY r.created_at DESC
                 LIMIT $1
             `, [parseInt(limit)]);
@@ -102,7 +109,8 @@ function createReviewsRouter(middlewares) {
             return apiResponse.success(res, reviews);
         } catch (err) {
             console.error('GET /reviews/featured error:', err);
-            return apiResponse.errors.serverError(res, 'Öne çıkan incelemeler yüklenirken hata oluştu');
+            console.error('Error details:', err.message, err.stack);
+            return apiResponse.errors.serverError(res, `Öne çıkan incelemeler yüklenirken hata oluştu: ${err.message}`);
         }
     });
 

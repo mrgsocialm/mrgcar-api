@@ -1,6 +1,6 @@
 const express = require('express');
 const pool = require('../db');
-const { requireAdmin } = require('../middleware/auth');
+const { requireAdmin, requireUser } = require('../middleware/auth');
 const { extractKeyFromPublicUrl, deleteObjects } = require('../services/r2');
 
 // Factory function that creates router with injected middleware
@@ -156,6 +156,120 @@ function createNewsRouter(middlewares) {
         } catch (err) {
             console.error('DELETE /news/:id error:', err);
             return apiResponse.errors.serverError(res, 'Haber silinirken hata oluştu');
+        }
+    });
+
+    // ==================== COMMENTS ENDPOINTS ====================
+
+    // GET /news/:newsId/comments - Get all comments for a news article
+    router.get('/:newsId/comments', publicLimiter, async (req, res) => {
+        try {
+            const { newsId } = req.params;
+            const { rows } = await pool.query(
+                `SELECT id, news_id, user_id, user_name, content, likes, created_at, updated_at 
+                 FROM news_comments 
+                 WHERE news_id = $1 
+                 ORDER BY created_at ASC`,
+                [newsId]
+            );
+
+            // Map to camelCase for frontend
+            const comments = rows.map(row => ({
+                id: row.id,
+                newsId: row.news_id,
+                userId: row.user_id,
+                userName: row.user_name,
+                content: row.content,
+                likes: row.likes || 0,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+                isLiked: false, // Client will track this locally for now
+            }));
+
+            return apiResponse.success(res, comments);
+        } catch (err) {
+            console.error('GET /news/:newsId/comments error:', err);
+            return apiResponse.errors.serverError(res, 'Yorumlar yüklenirken hata oluştu');
+        }
+    });
+
+    // POST /news/:newsId/comments - Create a new comment (requires auth)
+    router.post('/:newsId/comments', publicLimiter, requireUser, async (req, res) => {
+        try {
+            const { newsId } = req.params;
+            const { content } = req.body;
+            const userId = req.user.userId;
+
+            if (!content || content.trim().length === 0) {
+                return apiResponse.errors.badRequest(res, 'Yorum içeriği boş olamaz');
+            }
+
+            if (content.length > 5000) {
+                return apiResponse.errors.badRequest(res, 'Yorum içeriği 5000 karakterden uzun olamaz');
+            }
+
+            // Check if news exists
+            const newsCheck = await pool.query('SELECT id FROM news WHERE id = $1', [newsId]);
+            if (newsCheck.rows.length === 0) {
+                return apiResponse.errors.notFound(res, 'Haber');
+            }
+
+            // Get user name from users table or use default
+            let userName = 'Anonim';
+            try {
+                const userResult = await pool.query('SELECT name FROM users WHERE id = $1', [userId]);
+                if (userResult.rows.length > 0 && userResult.rows[0].name) {
+                    userName = userResult.rows[0].name;
+                }
+            } catch (e) {
+                console.warn('Could not fetch user name:', e.message);
+            }
+
+            // Insert comment
+            const { rows } = await pool.query(
+                `INSERT INTO news_comments (news_id, user_id, user_name, content)
+                 VALUES ($1, $2, $3, $4)
+                 RETURNING *`,
+                [newsId, userId, userName, content.trim()]
+            );
+
+            const comment = {
+                id: rows[0].id,
+                newsId: rows[0].news_id,
+                userId: rows[0].user_id,
+                userName: rows[0].user_name,
+                content: rows[0].content,
+                likes: rows[0].likes || 0,
+                createdAt: rows[0].created_at,
+                updatedAt: rows[0].updated_at,
+                isLiked: false,
+            };
+
+            return apiResponse.success(res, comment, 201);
+        } catch (err) {
+            console.error('POST /news/:newsId/comments error:', err);
+            return apiResponse.errors.serverError(res, 'Yorum oluşturulurken hata oluştu');
+        }
+    });
+
+    // DELETE /news/:newsId/comments/:commentId - Delete a comment (admin only)
+    router.delete('/:newsId/comments/:commentId', adminLimiter, requireAdmin, async (req, res) => {
+        try {
+            const { newsId, commentId } = req.params;
+
+            const { rows } = await pool.query(
+                'DELETE FROM news_comments WHERE id = $1 AND news_id = $2 RETURNING *',
+                [commentId, newsId]
+            );
+
+            if (rows.length > 0) {
+                return apiResponse.success(res, { message: 'Yorum silindi' });
+            } else {
+                return apiResponse.errors.notFound(res, 'Yorum');
+            }
+        } catch (err) {
+            console.error('DELETE /news/:newsId/comments/:commentId error:', err);
+            return apiResponse.errors.serverError(res, 'Yorum silinirken hata oluştu');
         }
     });
 

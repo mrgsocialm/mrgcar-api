@@ -12,7 +12,7 @@ const { generatePresignedUploadUrl, getPublicUrl, isConfigured, deleteObjects, e
 function createUploadsRouter(middlewares) {
     const router = express.Router();
     const { adminLimiter, publicLimiter, validate, presignUploadSchema, deleteUploadSchema, apiResponse } = middlewares;
-    
+
     // Helper function to check if user is admin
     function isAdmin(req) {
         const authHeader = req.headers.authorization;
@@ -49,15 +49,15 @@ function createUploadsRouter(middlewares) {
             const { filename, contentType, folder, make, model } = req.validatedBody || req.body;
 
             // Validate folder (prevent path traversal and unauthorized folders)
-            const ALLOWED_FOLDERS = ['cars', 'news', 'sliders', 'profiles', 'banners'];
+            const ALLOWED_FOLDERS = ['cars', 'news', 'sliders', 'profiles', 'banners', 'reviews'];
             if (!ALLOWED_FOLDERS.includes(folder)) {
                 return apiResponse.errors.badRequest(res, `Invalid folder. Allowed: ${ALLOWED_FOLDERS.join(', ')}`);
             }
 
             // Check if user has permission for this folder
             // Admin can access all folders, regular users can only access profiles and banners
-            const adminFolders = ['cars', 'news', 'sliders'];
-            
+            const adminFolders = ['cars', 'news', 'sliders', 'reviews'];
+
             if (adminFolders.includes(folder)) {
                 // Check if user is admin
                 if (!isAdmin(req)) {
@@ -95,7 +95,7 @@ function createUploadsRouter(middlewares) {
             const month = String(now.getMonth() + 1).padStart(2, '0');
             const timestamp = now.getTime();
             const random = crypto.randomBytes(8).toString('hex');
-            
+
             let key;
             // For cars folder, organize by make/model if provided
             if (folder === 'cars' && make && model) {
@@ -152,7 +152,7 @@ function createUploadsRouter(middlewares) {
 
             // Build list of keys to delete
             let keysToDelete = [];
-            
+
             // If keys array provided, use it
             if (keys && keys.length > 0) {
                 keysToDelete = keys;

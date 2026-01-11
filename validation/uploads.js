@@ -13,7 +13,7 @@ const ALLOWED_CONTENT_TYPES = [
 ];
 
 // Allowed folders
-const ALLOWED_FOLDERS = ['cars', 'news', 'sliders', 'profiles', 'banners'];
+const ALLOWED_FOLDERS = ['cars', 'news', 'sliders', 'profiles', 'banners', 'reviews'];
 
 /**
  * Presign upload request schema

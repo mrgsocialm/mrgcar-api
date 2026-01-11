@@ -1,6 +1,6 @@
 const express = require('express');
 const pool = require('../db');
-const { requireAdmin } = require('../middleware/auth');
+const { requireAdmin, requireUser } = require('../middleware/auth');
 const { mapForumPost } = require('../utils/helpers');
 
 // Factory function that creates router with injected middleware
@@ -25,7 +25,7 @@ function createForumRouter(middlewares) {
     router.get('/posts', publicLimiter, async (req, res) => {
         try {
             const { category, limit = 50, offset = 0 } = req.query;
-            
+
             let query = 'SELECT * FROM forum_posts';
             const params = [];
             let paramIndex = 1;
@@ -175,6 +175,132 @@ function createForumRouter(middlewares) {
         } catch (err) {
             console.error('DELETE /forum/posts/:id error:', err);
             return apiResponse.errors.serverError(res, 'Forum gönderisi silinirken hata oluştu');
+        }
+    });
+
+    // ==================== REPLIES ENDPOINTS ====================
+
+    // GET /forum/posts/:postId/replies - Get all replies for a post
+    router.get('/posts/:postId/replies', publicLimiter, async (req, res) => {
+        try {
+            const { postId } = req.params;
+            const { rows } = await pool.query(
+                `SELECT id, post_id, user_id, user_name, content, likes, created_at, updated_at 
+                 FROM forum_replies 
+                 WHERE post_id = $1 
+                 ORDER BY created_at ASC`,
+                [postId]
+            );
+
+            // Map to camelCase for frontend
+            const replies = rows.map(row => ({
+                id: row.id,
+                postId: row.post_id,
+                userId: row.user_id,
+                userName: row.user_name,
+                content: row.content,
+                likes: row.likes || 0,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+                isLiked: false, // Client will track this locally for now
+            }));
+
+            return apiResponse.success(res, replies);
+        } catch (err) {
+            console.error('GET /forum/posts/:postId/replies error:', err);
+            return apiResponse.errors.serverError(res, 'Cevaplar yüklenirken hata oluştu');
+        }
+    });
+
+    // POST /forum/posts/:postId/replies - Create a new reply (requires auth)
+    router.post('/posts/:postId/replies', publicLimiter, requireUser, async (req, res) => {
+        try {
+            const { postId } = req.params;
+            const { content } = req.body;
+            const userId = req.user.userId;
+
+            if (!content || content.trim().length === 0) {
+                return apiResponse.errors.badRequest(res, 'Cevap içeriği boş olamaz');
+            }
+
+            if (content.length > 5000) {
+                return apiResponse.errors.badRequest(res, 'Cevap içeriği 5000 karakterden uzun olamaz');
+            }
+
+            // Check if post exists
+            const postCheck = await pool.query('SELECT id FROM forum_posts WHERE id = $1', [postId]);
+            if (postCheck.rows.length === 0) {
+                return apiResponse.errors.notFound(res, 'Forum gönderisi');
+            }
+
+            // Get user name from users table or use default
+            let userName = 'Anonim';
+            try {
+                const userResult = await pool.query('SELECT name FROM users WHERE id = $1', [userId]);
+                if (userResult.rows.length > 0 && userResult.rows[0].name) {
+                    userName = userResult.rows[0].name;
+                }
+            } catch (e) {
+                console.warn('Could not fetch user name:', e.message);
+            }
+
+            // Insert reply
+            const { rows } = await pool.query(
+                `INSERT INTO forum_replies (post_id, user_id, user_name, content)
+                 VALUES ($1, $2, $3, $4)
+                 RETURNING *`,
+                [postId, userId, userName, content.trim()]
+            );
+
+            // Increment reply count on the post
+            await pool.query(
+                'UPDATE forum_posts SET replies = replies + 1, updated_at = NOW() WHERE id = $1',
+                [postId]
+            );
+
+            const reply = {
+                id: rows[0].id,
+                postId: rows[0].post_id,
+                userId: rows[0].user_id,
+                userName: rows[0].user_name,
+                content: rows[0].content,
+                likes: rows[0].likes || 0,
+                createdAt: rows[0].created_at,
+                updatedAt: rows[0].updated_at,
+                isLiked: false,
+            };
+
+            return apiResponse.success(res, reply, 201);
+        } catch (err) {
+            console.error('POST /forum/posts/:postId/replies error:', err);
+            return apiResponse.errors.serverError(res, 'Cevap oluşturulurken hata oluştu');
+        }
+    });
+
+    // DELETE /forum/posts/:postId/replies/:replyId - Delete a reply (admin only)
+    router.delete('/posts/:postId/replies/:replyId', adminLimiter, requireAdmin, async (req, res) => {
+        try {
+            const { postId, replyId } = req.params;
+
+            const { rows } = await pool.query(
+                'DELETE FROM forum_replies WHERE id = $1 AND post_id = $2 RETURNING *',
+                [replyId, postId]
+            );
+
+            if (rows.length > 0) {
+                // Decrement reply count on the post
+                await pool.query(
+                    'UPDATE forum_posts SET replies = GREATEST(replies - 1, 0), updated_at = NOW() WHERE id = $1',
+                    [postId]
+                );
+
+                return apiResponse.success(res, { message: 'Cevap silindi' });
+            } else {
+                return apiResponse.errors.notFound(res, 'Cevap');
+            }
+        } catch (err) {
+            console.error('DELETE /forum/posts/:postId/replies/:replyId error:', err);
+            return apiResponse.errors.serverError(res, 'Cevap silinirken hata oluştu');
         }
     });
 

@@ -4,3 +4,4 @@
 ALTER TABLE users 
     ADD COLUMN IF NOT EXISTS banner_url TEXT DEFAULT NULL;
 
+

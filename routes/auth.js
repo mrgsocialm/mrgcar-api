@@ -429,6 +429,84 @@ function createAuthRouter(deps) {
         }
     });
 
+    // POST /auth/change-password - Authenticated user changes their password
+    router.post('/change-password', authLimiter, async (req, res) => {
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader) {
+            return res.status(401).json({ success: false, error: 'Token gerekli' });
+        }
+
+        const parts = authHeader.split(' ');
+        if (parts.length !== 2 || parts[0] !== 'Bearer') {
+            return res.status(401).json({ success: false, error: 'Geçersiz token formatı' });
+        }
+
+        const token = parts[1];
+
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET);
+            const userId = decoded.userId;
+
+            const { currentPassword, newPassword } = req.body || {};
+
+            if (!currentPassword || !newPassword) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Mevcut şifre ve yeni şifre gerekli'
+                });
+            }
+
+            if (newPassword.length < 6) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Yeni şifre en az 6 karakter olmalı'
+                });
+            }
+
+            // Get current user
+            const userResult = await pool.query(
+                'SELECT id, email, password_hash FROM users WHERE id = $1',
+                [userId]
+            );
+
+            if (userResult.rows.length === 0) {
+                return res.status(404).json({ success: false, error: 'Kullanıcı bulunamadı' });
+            }
+
+            const user = userResult.rows[0];
+
+            // Verify current password
+            const isPasswordValid = await bcrypt.compare(currentPassword, user.password_hash);
+            if (!isPasswordValid) {
+                return res.status(401).json({
+                    success: false,
+                    error: 'Mevcut şifre yanlış'
+                });
+            }
+
+            // Hash new password and update
+            const newPasswordHash = await bcrypt.hash(newPassword, 10);
+            await pool.query(
+                'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
+                [newPasswordHash, userId]
+            );
+
+            console.log(`Password changed successfully for user ${user.email}`);
+
+            return res.json({
+                success: true,
+                message: 'Şifreniz başarıyla değiştirildi.'
+            });
+        } catch (error) {
+            if (error.name === 'TokenExpiredError') {
+                return res.status(401).json({ success: false, error: 'Token süresi dolmuş' });
+            }
+            console.error('POST /auth/change-password error:', error);
+            return res.status(500).json({ success: false, error: 'Sunucu hatası' });
+        }
+    });
+
     return router;
 }
 

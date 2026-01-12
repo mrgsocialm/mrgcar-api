@@ -1,21 +1,56 @@
 /**
  * Email Service using Resend API
  * 
- * Setup:
- * 1. Sign up at https://resend.com
- * 2. Get API key from dashboard
- * 3. Add RESEND_API_KEY to .env file
- * 4. (Optional) Verify your domain for custom sender email
+ * Environment Variables:
+ *   RESEND_API_KEY  - Required: Your Resend API key
+ *   EMAIL_FROM      - Optional: Sender address (must be valid email format)
+ *                     Format: "email@example.com" or "Name <email@example.com>"
+ *                     Default: "MRGCar <onboarding@resend.dev>"
+ *   EMAIL_REPLY_TO  - Optional: Reply-to address
  */
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_API_URL = 'https://api.resend.com/emails';
 
-// Read from .env with fallback
-const DEFAULT_FROM = process.env.EMAIL_FROM || 'onboarding@resend.dev';
+// Email format regex: matches "email@domain.com" or "Name <email@domain.com>"
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_WITH_NAME_REGEX = /^.+\s*<[^\s@]+@[^\s@]+\.[^\s@]+>$/;
 
-// Log at startup to verify the value
-console.log(`📧 Email Service: FROM address configured as: "${DEFAULT_FROM}"`);
+/**
+ * Validates and normalizes the FROM address
+ * @param {string} fromValue - Value from .env
+ * @returns {string} - Valid FROM address
+ */
+function getValidFromAddress(fromValue) {
+  const fallback = 'MRGCar <onboarding@resend.dev>';
+
+  if (!fromValue || typeof fromValue !== 'string') {
+    console.warn(`⚠️ EMAIL_FROM not set, using fallback: ${fallback}`);
+    return fallback;
+  }
+
+  const trimmed = fromValue.trim();
+
+  // Check if it's a valid format
+  if (EMAIL_REGEX.test(trimmed) || EMAIL_WITH_NAME_REGEX.test(trimmed)) {
+    return trimmed;
+  }
+
+  console.error(`❌ Invalid EMAIL_FROM format: "${trimmed}"`);
+  console.error(`   Expected: "email@example.com" or "Name <email@example.com>"`);
+  console.error(`   Using fallback: ${fallback}`);
+  return fallback;
+}
+
+// Read and validate configuration at startup
+const EMAIL_FROM = getValidFromAddress(process.env.EMAIL_FROM);
+const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || null;
+
+// Startup logging
+console.log('📧 Email Service Configuration:');
+console.log(`   FROM: "${EMAIL_FROM}"`);
+console.log(`   REPLY_TO: "${EMAIL_REPLY_TO || '(not set)'}"`);
+console.log(`   API Key: ${RESEND_API_KEY ? '✓ Set' : '✗ Missing!'}`);
 
 /**
  * Send an email using Resend API
@@ -24,18 +59,32 @@ console.log(`📧 Email Service: FROM address configured as: "${DEFAULT_FROM}"`)
  * @param {string} options.subject - Email subject
  * @param {string} options.html - HTML content
  * @param {string} [options.text] - Plain text content (optional)
+ * @param {string} [options.replyTo] - Override reply-to address (optional)
  * @returns {Promise<{success: boolean, id?: string, error?: string}>}
  */
-async function sendEmail({ to, subject, html, text }) {
+async function sendEmail({ to, subject, html, text, replyTo }) {
   if (!RESEND_API_KEY) {
-    console.error('❌ FATAL: RESEND_API_KEY is not defined in environment variables!');
-    return { success: false, error: 'Email service config missing' };
+    console.error('❌ FATAL: RESEND_API_KEY is not defined!');
+    return { success: false, error: 'Email service not configured' };
   }
 
-  // Debug log to confirm key is loaded (masked)
-  console.log(`📧 Attempting to send email to: ${to}`);
-  console.log(`📨 Sender Address (FROM): ${DEFAULT_FROM}`);
-  console.log(`🔑 Resend Key Status: ${RESEND_API_KEY.startsWith('re_') ? 'Valid Prefix (re_...)' : 'Invalid Prefix'}`);
+  // Build request payload
+  const payload = {
+    from: EMAIL_FROM,
+    to: Array.isArray(to) ? to : [to],
+    subject,
+    html,
+  };
+
+  // Add optional fields
+  if (text) payload.text = text;
+  if (replyTo || EMAIL_REPLY_TO) {
+    payload.reply_to = replyTo || EMAIL_REPLY_TO;
+  }
+
+  console.log(`📧 Sending email to: ${payload.to.join(', ')}`);
+  console.log(`   From: ${payload.from}`);
+  console.log(`   Subject: ${subject}`);
 
   try {
     const response = await fetch(RESEND_API_URL, {
@@ -44,13 +93,7 @@ async function sendEmail({ to, subject, html, text }) {
         'Authorization': `Bearer ${RESEND_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        from: DEFAULT_FROM,
-        to: [to],
-        subject,
-        html,
-        text: text || undefined,
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
@@ -59,11 +102,11 @@ async function sendEmail({ to, subject, html, text }) {
       console.log(`✅ Email sent successfully! ID: ${data.id}`);
       return { success: true, id: data.id };
     } else {
-      console.error('❌ Resend API Error Response:', JSON.stringify(data, null, 2));
+      console.error('❌ Resend API Error:', JSON.stringify(data, null, 2));
       return { success: false, error: data.message || 'Resend API rejected request' };
     }
   } catch (error) {
-    console.error('❌ Network/Fetch Error:', error);
+    console.error('❌ Network/Fetch Error:', error.message);
     return { success: false, error: error.message };
   }
 }
@@ -134,7 +177,7 @@ async function sendPasswordResetEmail(email, code, userName = 'Değerli Kullanı
   </div>
 </body>
 </html>
-  `;
+    `;
 
   const text = `
 MRGCar - Şifre Sıfırlama
@@ -150,7 +193,7 @@ Bu kod 10 dakika içinde geçerliliğini yitirecektir.
 Eğer bu talebi siz yapmadıysanız, bu emaili görmezden gelebilirsiniz.
 
 © 2024 MRGCar
-  `;
+    `;
 
   return sendEmail({ to: email, subject, html, text });
 }
@@ -158,4 +201,8 @@ Eğer bu talebi siz yapmadıysanız, bu emaili görmezden gelebilirsiniz.
 module.exports = {
   sendEmail,
   sendPasswordResetEmail,
+  // Export for testing
+  getValidFromAddress,
+  EMAIL_FROM,
+  EMAIL_REPLY_TO,
 };

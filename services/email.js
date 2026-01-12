@@ -24,40 +24,45 @@ const DEFAULT_FROM = process.env.EMAIL_FROM || 'MRGCar <onboarding@resend.dev>';
  * @returns {Promise<{success: boolean, id?: string, error?: string}>}
  */
 async function sendEmail({ to, subject, html, text }) {
-    if (!RESEND_API_KEY) {
-        console.error('❌ RESEND_API_KEY not configured');
-        return { success: false, error: 'Email service not configured' };
+  if (!RESEND_API_KEY) {
+    console.error('❌ FATAL: RESEND_API_KEY is not defined in environment variables!');
+    return { success: false, error: 'Email service config missing' };
+  }
+
+  // Debug log to confirm key is loaded (masked)
+  console.log(`📧 Attempting to send email to: ${to}`);
+  console.log(`📨 Sender Address (FROM): ${DEFAULT_FROM}`);
+  console.log(`🔑 Resend Key Status: ${RESEND_API_KEY.startsWith('re_') ? 'Valid Prefix (re_...)' : 'Invalid Prefix'}`);
+
+  try {
+    const response = await fetch(RESEND_API_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: DEFAULT_FROM,
+        to: [to],
+        subject,
+        html,
+        text: text || undefined,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      console.log(`✅ Email sent successfully! ID: ${data.id}`);
+      return { success: true, id: data.id };
+    } else {
+      console.error('❌ Resend API Error Response:', JSON.stringify(data, null, 2));
+      return { success: false, error: data.message || 'Resend API rejected request' };
     }
-
-    try {
-        const response = await fetch(RESEND_API_URL, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${RESEND_API_KEY}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                from: DEFAULT_FROM,
-                to: [to],
-                subject,
-                html,
-                text: text || undefined,
-            }),
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            console.log(`✅ Email sent to ${to}, ID: ${data.id}`);
-            return { success: true, id: data.id };
-        } else {
-            console.error(`❌ Email failed: ${JSON.stringify(data)}`);
-            return { success: false, error: data.message || 'Email sending failed' };
-        }
-    } catch (error) {
-        console.error('❌ Email error:', error);
-        return { success: false, error: error.message };
-    }
+  } catch (error) {
+    console.error('❌ Network/Fetch Error:', error);
+    return { success: false, error: error.message };
+  }
 }
 
 /**
@@ -68,9 +73,9 @@ async function sendEmail({ to, subject, html, text }) {
  * @returns {Promise<{success: boolean, id?: string, error?: string}>}
  */
 async function sendPasswordResetEmail(email, code, userName = 'Değerli Kullanıcımız') {
-    const subject = 'MRGCar - Şifre Sıfırlama Kodu';
+  const subject = 'MRGCar - Şifre Sıfırlama Kodu';
 
-    const html = `
+  const html = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -128,7 +133,7 @@ async function sendPasswordResetEmail(email, code, userName = 'Değerli Kullanı
 </html>
   `;
 
-    const text = `
+  const text = `
 MRGCar - Şifre Sıfırlama
 
 Merhaba ${userName},
@@ -144,10 +149,10 @@ Eğer bu talebi siz yapmadıysanız, bu emaili görmezden gelebilirsiniz.
 © 2024 MRGCar
   `;
 
-    return sendEmail({ to: email, subject, html, text });
+  return sendEmail({ to: email, subject, html, text });
 }
 
 module.exports = {
-    sendEmail,
-    sendPasswordResetEmail,
+  sendEmail,
+  sendPasswordResetEmail,
 };

@@ -302,6 +302,11 @@ function createAuthRouter(deps) {
                 const emailResult = await emailService.sendPasswordResetEmail(email, code, user.name);
                 if (!emailResult.success) {
                     console.error('Failed to send reset email:', emailResult.error);
+                    // DEBUG: Return error to client to visualize the problem
+                    return res.status(500).json({
+                        success: false,
+                        error: 'Email gönderilemedi: ' + (typeof emailResult.error === 'object' ? JSON.stringify(emailResult.error) : emailResult.error)
+                    });
                 }
             }
 

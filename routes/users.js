@@ -192,6 +192,34 @@ function createUsersRouter(middlewares) {
         }
     });
 
+    // DELETE /users/:id - Permanently delete user (admin only)
+    router.delete('/:id', adminLimiter, requireAdmin, async (req, res) => {
+        try {
+            const userId = req.params.id;
+
+            // First check if user exists
+            const userCheck = await pool.query('SELECT id, email, name FROM users WHERE id = $1', [userId]);
+            if (userCheck.rows.length === 0) {
+                return apiResponse.errors.notFound(res, 'Kullanıcı');
+            }
+
+            const deletedUser = userCheck.rows[0];
+
+            // Delete user (CASCADE will handle related data if configured)
+            await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+
+            console.log(`User deleted by admin: ${deletedUser.email} (ID: ${userId})`);
+
+            return apiResponse.success(res, {
+                message: 'Kullanıcı kalıcı olarak silindi',
+                deletedUser: { id: deletedUser.id, email: deletedUser.email, name: deletedUser.name }
+            });
+        } catch (err) {
+            console.error('DELETE /users/:id error:', err);
+            return apiResponse.errors.serverError(res, 'Kullanıcı silinirken hata oluştu');
+        }
+    });
+
     return router;
 }
 

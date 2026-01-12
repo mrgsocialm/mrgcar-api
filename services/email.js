@@ -205,51 +205,7 @@ Eğer bu talebi siz yapmadıysanız, bu emaili görmezden gelebilirsiniz.
  * @param {string} message - The support message/problem description
  * @returns {Promise<{success: boolean, error?: string}>}
  */
-async function sendSupportEmail(userEmail, userName, message) {
-  const adminEmail = 'mrgsocial@gmail.com';
-  const subject = `Destek Talebi: ${userName || userEmail}`;
-  const fromName = userName || 'Kullanıcı';
 
-  const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
-      <h2 style="color: #333; border-bottom: 2px solid #E53935; padding-bottom: 10px;">Yeni Destek Talebi</h2>
-      
-      <div style="background-color: #f9f9f9; padding: 15px; border-radius: 6px; margin: 20px 0;">
-        <p style="margin: 5px 0;"><strong>Gönderen:</strong> ${fromName}</p>
-        <p style="margin: 5px 0;"><strong>E-posta:</strong> ${userEmail}</p>
-        <p style="margin: 5px 0;"><strong>Tarih:</strong> ${new Date().toLocaleString('tr-TR')}</p>
-      </div>
-
-      <div style="padding: 10px 0;">
-        <h3 style="color: #555;">Mesaj:</h3>
-        <p style="white-space: pre-wrap; color: #333; line-height: 1.5; font-size: 16px;">${message}</p>
-      </div>
-      
-      <div style="margin-top: 30px; font-size: 12px; color: #888; border-top: 1px solid #eee; padding-top: 10px;">
-        <p>Bu e-posta MRGCar uygulamasından gönderilmiştir.</p>
-      </div>
-    </div>
-  `;
-
-  const text = `
-    YENİ DESTEK TALEBİ
-    ==================
-    Gönderen: ${fromName} (${userEmail})
-    Tarih: ${new Date().toLocaleString('tr-TR')}
-
-    Mesaj:
-    ${message}
-  `;
-
-  // We set replyTo to the user's email so replying to this email goes to the user
-  return sendEmail({
-    to: adminEmail,
-    subject,
-    html,
-    text,
-    replyTo: userEmail
-  });
-}
 
 module.exports = {
   sendEmail,

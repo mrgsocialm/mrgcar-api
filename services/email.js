@@ -11,8 +11,11 @@
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_API_URL = 'https://api.resend.com/emails';
 
-// HARDCODED: Bypassing .env issues - change this directly if needed
-const DEFAULT_FROM = 'admin@mrgcar.com';
+// Read from .env with fallback
+const DEFAULT_FROM = process.env.EMAIL_FROM || 'onboarding@resend.dev';
+
+// Log at startup to verify the value
+console.log(`📧 Email Service: FROM address configured as: "${DEFAULT_FROM}"`);
 
 /**
  * Send an email using Resend API

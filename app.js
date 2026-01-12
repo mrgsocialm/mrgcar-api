@@ -412,6 +412,10 @@ const uploadsRouter = createUploadsRouter({
 });
 app.use('/uploads', uploadsRouter);
 
+// Support router
+const supportRouter = require('./routes/support');
+app.use('/support', supportRouter);
+
 // Export app and dependencies for other modules and tests
 module.exports = {
     app,

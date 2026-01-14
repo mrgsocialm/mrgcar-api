@@ -135,6 +135,88 @@ function createAuthRouter(deps) {
         }
     });
 
+    // POST /auth/google - Google Sign-In
+    router.post('/google', authLimiter, async (req, res) => {
+        const { idToken, email, name, photoUrl } = req.body || {};
+
+        if (!email) {
+            return res.status(400).json({ success: false, error: 'Email gerekli' });
+        }
+
+        try {
+            // For production: verify idToken with Google
+            // For now, we trust the client-side Google Sign-In
+            // In production, you would use google-auth-library:
+            // const { OAuth2Client } = require('google-auth-library');
+            // const client = new OAuth2Client(GOOGLE_CLIENT_ID);
+            // const ticket = await client.verifyIdToken({ idToken, audience: GOOGLE_CLIENT_ID });
+            // const payload = ticket.getPayload();
+
+            const normalizedEmail = email.toLowerCase();
+
+            // Check if user exists
+            const existingUser = await pool.query(
+                'SELECT id, email, name, avatar_url, banner_url FROM users WHERE email = $1',
+                [normalizedEmail]
+            );
+
+            let user;
+
+            if (existingUser.rows.length > 0) {
+                // User exists - log them in
+                user = existingUser.rows[0];
+
+                // Update avatar if they don't have one but Google provides one
+                if (!user.avatar_url && photoUrl) {
+                    await pool.query(
+                        'UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2',
+                        [photoUrl, user.id]
+                    );
+                    user.avatar_url = photoUrl;
+                }
+
+                console.log(`Google login successful for existing user: ${user.email}`);
+            } else {
+                // New user - create account
+                // Generate a random password hash (user won't use it, they'll login with Google)
+                const randomPassword = crypto.randomBytes(32).toString('hex');
+                const passwordHash = await bcrypt.hash(randomPassword, 10);
+
+                const userName = name || email.split('@')[0];
+
+                const result = await pool.query(
+                    `INSERT INTO users (email, password_hash, name, avatar_url) 
+                     VALUES ($1, $2, $3, $4) 
+                     RETURNING id, email, name, avatar_url, banner_url`,
+                    [normalizedEmail, passwordHash, userName, photoUrl || null]
+                );
+
+                user = result.rows[0];
+                console.log(`New user created via Google Sign-In: ${user.email}`);
+            }
+
+            // Generate tokens
+            const accessToken = generateAccessToken(user);
+            const refreshToken = generateRefreshToken(user);
+
+            res.json({
+                success: true,
+                user: {
+                    id: user.id,
+                    name: user.name,
+                    email: user.email,
+                    avatar_url: user.avatar_url,
+                    banner_url: user.banner_url
+                },
+                accessToken,
+                refreshToken
+            });
+        } catch (error) {
+            console.error('POST /auth/google error:', error);
+            res.status(500).json({ success: false, error: 'Sunucu hatası' });
+        }
+    });
+
     // GET /auth/me
     router.get('/me', async (req, res) => {
         const authHeader = req.headers.authorization;

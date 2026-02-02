@@ -201,19 +201,9 @@ Eğer bu talebi siz yapmadıysanız, bu emaili görmezden gelebilirsiniz.
   return sendEmail({ to: email, subject, html, text });
 }
 
-/**
- * Send a support request email to admin (mrgsocial@gmail.com)
- * @param {string} userEmail - The user's email address
- * @param {string} userName - The user's name (optional)
- * @param {string} message - The support message/problem description
- * @returns {Promise<{success: boolean, error?: string}>}
- */
-
-
 module.exports = {
   sendEmail,
   sendPasswordResetEmail,
-  sendSupportEmail,
   // Export for testing
   getValidFromAddress,
   EMAIL_FROM,

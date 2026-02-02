@@ -5,9 +5,12 @@
  *   RESEND_API_KEY  - Required: Your Resend API key
  *   EMAIL_FROM      - Optional: Sender address (must be valid email format)
  *                     Format: "email@example.com" or "Name <email@example.com>"
- *                     Default: "MRGCar <onboarding@resend.dev>"
+ *                     Default: "MRGCar <noreply@mrgcar.com>"
  *   EMAIL_REPLY_TO  - Optional: Reply-to address
  */
+
+// Ensure env vars are loaded before reading them
+require('dotenv').config();
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_API_URL = 'https://api.resend.com/emails';

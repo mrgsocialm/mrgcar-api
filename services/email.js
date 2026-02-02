@@ -22,7 +22,7 @@ const EMAIL_WITH_NAME_REGEX = /^.+\s*<[^\s@]+@[^\s@]+\.[^\s@]+>$/;
  * @returns {string} - Valid FROM address
  */
 function getValidFromAddress(fromValue) {
-  const fallback = 'MRGCar <onboarding@resend.dev>';
+  const fallback = 'MRGCar <noreply@mrgcar.com>';
 
   if (!fromValue || typeof fromValue !== 'string') {
     console.warn(`⚠️ EMAIL_FROM not set, using fallback: ${fallback}`);

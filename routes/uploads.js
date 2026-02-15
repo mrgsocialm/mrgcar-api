@@ -54,15 +54,16 @@ function createUploadsRouter(middlewares) {
 
     // Helper function to check if user is admin
     function isAdmin(req) {
+        // If requireAdminOrUser already set req.admin, trust it
+        if (req.admin) return true;
+
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
             return false;
         }
-        const jwt = require('jsonwebtoken');
         const token = authHeader.split(' ')[1];
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET);
-            // Check if token has admin role
+            const decoded = jwt.verify(token, ADMIN_JWT_SECRET);
             return decoded.role === 'admin';
         } catch (e) {
             return false;
@@ -107,8 +108,8 @@ function createUploadsRouter(middlewares) {
 
             // Extract file extension (prevent path traversal)
             const ext = path.extname(filename).toLowerCase().slice(1); // Remove leading dot
-            if (!['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
-                return apiResponse.errors.badRequest(res, 'Invalid file extension. Allowed: jpg, jpeg, png, webp');
+            if (!['jpg', 'jpeg', 'png', 'webp', 'jfif'].includes(ext)) {
+                return apiResponse.errors.badRequest(res, 'Invalid file extension. Allowed: jpg, jpeg, png, webp, jfif');
             }
 
             // Additional path traversal protection: ensure filename doesn't contain path separators

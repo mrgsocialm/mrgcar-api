@@ -43,7 +43,8 @@ function createReviewsRouter(middlewares) {
                 rating: row.rating,
                 title: row.title,
                 content: row.content,
-                image: row.image,
+                image: row.images?.[0] || row.image,
+                images: row.images || (row.image ? [row.image] : []),
                 pros: row.pros,
                 cons: row.cons,
                 isFeatured: row.is_featured,
@@ -83,7 +84,8 @@ function createReviewsRouter(middlewares) {
                 rating: row.rating,
                 title: row.title,
                 content: row.content,
-                image: row.image,
+                image: row.images?.[0] || row.image,
+                images: row.images || (row.image ? [row.image] : []),
                 pros: row.pros,
                 cons: row.cons,
                 isFeatured: row.is_featured,
@@ -122,7 +124,8 @@ function createReviewsRouter(middlewares) {
                 rating: row.rating,
                 title: row.title,
                 content: row.content,
-                image: row.image,
+                image: row.images?.[0] || row.image,
+                images: row.images || (row.image ? [row.image] : []),
                 pros: row.pros,
                 cons: row.cons,
                 isFeatured: row.is_featured,
@@ -141,15 +144,19 @@ function createReviewsRouter(middlewares) {
     // POST /reviews - Create review (admin only)
     router.post('/', adminLimiter, requireAdmin, validate(createReviewSchema), async (req, res) => {
         try {
-            const { carId, rating, title, content, pros, cons, isFeatured, isAdminReview, image, authorName } = req.validatedBody;
+            const { carId, rating, title, content, pros, cons, isFeatured, isAdminReview, image, images, authorName } = req.validatedBody;
 
-            // Validation handled by Zod middleware
+            // Normalize: support both single image and images array
+            let finalImages = images || [];
+            if (!finalImages.length && image) {
+                finalImages = [image];
+            }
 
             const { rows } = await pool.query(`
-                INSERT INTO reviews (car_id, rating, title, content, pros, cons, is_featured, is_admin_review, image, author_name, status)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'published')
+                INSERT INTO reviews (car_id, rating, title, content, pros, cons, is_featured, is_admin_review, image, images, author_name, status)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'published')
                 RETURNING *
-            `, [carId || null, rating || null, title, content, pros || null, cons || null, isFeatured || false, isAdminReview !== false, image || null, authorName || null]);
+            `, [carId || null, rating || null, title, content, pros || null, cons || null, isFeatured || false, isAdminReview !== false, finalImages[0] || null, finalImages.length ? finalImages : null, authorName || null]);
 
             return apiResponse.success(res, rows[0], 201);
         } catch (err) {
@@ -161,7 +168,7 @@ function createReviewsRouter(middlewares) {
     // PUT /reviews/:id - Update review (admin only)
     router.put('/:id', adminLimiter, requireAdmin, validate(updateReviewSchema), async (req, res) => {
         try {
-            const { carId, rating, title, content, pros, cons, isFeatured, status } = req.validatedBody;
+            const { carId, rating, title, content, pros, cons, isFeatured, status, images } = req.validatedBody;
 
             const { rows } = await pool.query(`
                 UPDATE reviews
@@ -173,10 +180,12 @@ function createReviewsRouter(middlewares) {
                     cons = COALESCE($6, cons),
                     is_featured = COALESCE($7, is_featured),
                     status = COALESCE($8, status),
+                    images = COALESCE($9, images),
+                    image = COALESCE($10, image),
                     updated_at = NOW()
-                WHERE id = $9
+                WHERE id = $11
                 RETURNING *
-            `, [carId, rating, title, content, pros, cons, isFeatured, status, req.params.id]);
+            `, [carId, rating, title, content, pros, cons, isFeatured, status, images || null, images?.[0] || null, req.params.id]);
 
             if (rows.length === 0) {
                 return apiResponse.errors.notFound(res, 'İnceleme');

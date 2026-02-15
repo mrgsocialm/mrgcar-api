@@ -6,9 +6,47 @@
 const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
-const { requireAdmin, requireUser } = require('../middleware/auth');
+const { requireAdmin, requireUser, ADMIN_JWT_SECRET, JWT_SECRET } = require('../middleware/auth');
 const { generatePresignedUploadUrl, getPublicUrl, isConfigured, deleteObjects, extractKeyFromPublicUrl } = require('../services/r2');
 const logger = require('../services/logger');
+const jwt = require('jsonwebtoken');
+
+// Middleware that accepts both admin and regular user tokens
+function requireAdminOrUser(req, res, next) {
+    const authHeader = req.headers.authorization;
+    let token;
+
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.split(' ')[1];
+    } else if (req.cookies && (req.cookies.admin_token || req.cookies.access_token)) {
+        token = req.cookies.admin_token || req.cookies.access_token;
+    }
+
+    if (!token) {
+        return res.status(401).json({ error: "Unauthorized: No token provided" });
+    }
+
+    // Try admin token first, then user token
+    try {
+        const decoded = jwt.verify(token, ADMIN_JWT_SECRET);
+        req.admin = decoded;
+        req.user = decoded;
+        return next();
+    } catch (e) {
+        // Not an admin token, try user token
+    }
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        req.user = decoded;
+        return next();
+    } catch (error) {
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({ error: "Unauthorized: Token expired" });
+        }
+        return res.status(401).json({ error: "Unauthorized: Invalid token" });
+    }
+}
 
 function createUploadsRouter(middlewares) {
     const router = express.Router();
@@ -40,7 +78,7 @@ function createUploadsRouter(middlewares) {
      * - profiles, banners: Any authenticated user
      * - cars, news, sliders: Admin only
      */
-    router.post('/presign', publicLimiter, requireUser, validate(presignUploadSchema), async (req, res) => {
+    router.post('/presign', publicLimiter, requireAdminOrUser, validate(presignUploadSchema), async (req, res) => {
         try {
             // Check if R2 is configured
             if (!isConfigured()) {

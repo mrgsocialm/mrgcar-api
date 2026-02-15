@@ -4,6 +4,7 @@
  */
 require('dotenv').config();
 const { Pool } = require('pg');
+const logger = require('./services/logger');
 
 // Parse DATABASE_URL or use individual params
 let poolConfig;
@@ -33,13 +34,11 @@ const pool = new Pool(poolConfig);
 
 // Log connection status
 pool.on('connect', () => {
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('📦 Database connected');
-  }
+  logger.info('Database connected');
 });
 
 pool.on('error', (err) => {
-  console.error('❌ Database pool error:', err.message);
+  logger.error('Database pool error', { error: err.message });
 });
 
 module.exports = pool;

@@ -4,6 +4,7 @@
  */
 
 const admin = require('firebase-admin');
+const logger = require('../services/logger');
 
 // Firebase Admin SDK initialization
 let firebaseInitialized = false;
@@ -23,23 +24,23 @@ function initializeFirebase() {
                 credential: admin.credential.cert(serviceAccount),
                 projectId: projectId || serviceAccount.project_id,
             });
-            console.log('✅ Firebase Admin SDK initialized with service account');
+            logger.info('✅ Firebase Admin SDK initialized with service account');
         } else if (projectId) {
             // Use Application Default Credentials (for cloud environments)
             admin.initializeApp({
                 credential: admin.credential.applicationDefault(),
                 projectId: projectId,
             });
-            console.log('✅ Firebase Admin SDK initialized with ADC');
+            logger.info('✅ Firebase Admin SDK initialized with ADC');
         } else {
-            console.warn('⚠️ Firebase credentials not configured. Push notifications disabled.');
+            logger.warn('⚠️ Firebase credentials not configured. Push notifications disabled.');
             return false;
         }
 
         firebaseInitialized = true;
         return true;
     } catch (error) {
-        console.error('❌ Firebase initialization error:', error.message);
+        logger.error('❌ Firebase initialization error:', error.message);
         return false;
     }
 }
@@ -95,11 +96,11 @@ async function sendToTokens(tokens, title, body, data = {}) {
         const success = responses.filter(r => r.status === 'fulfilled').length;
         const failure = responses.filter(r => r.status === 'rejected').length;
 
-        console.log(`📬 FCM sent: ${success} success, ${failure} failed`);
+        logger.info(`📬 FCM sent: ${success} success, ${failure} failed`);
 
         return { success, failure };
     } catch (error) {
-        console.error('❌ FCM send error:', error);
+        logger.error('❌ FCM send error:', error);
         return { success: 0, failure: tokens.length, error: error.message };
     }
 }
@@ -151,11 +152,11 @@ async function sendToTopic(topic, title, body, data = {}) {
         };
 
         const response = await admin.messaging().send(message);
-        console.log(`📬 FCM topic message sent: ${response}`);
+        logger.info(`📬 FCM topic message sent: ${response}`);
 
         return { success: true, messageId: response };
     } catch (error) {
-        console.error('❌ FCM topic send error:', error);
+        logger.error('❌ FCM topic send error:', error);
         return { success: false, error: error.message };
     }
 }

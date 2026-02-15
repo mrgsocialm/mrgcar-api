@@ -2,8 +2,8 @@ const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || JWT_SECRET + '-refresh';
-const ADMIN_JWT_SECRET = JWT_SECRET;
-const ACCESS_TOKEN_EXPIRY = '30d'; // 30 gün - mobil uygulama için uzun süre
+const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || (JWT_SECRET + '-admin');
+const ACCESS_TOKEN_EXPIRY = '15m'; // 15 dakika — refresh token ile yenilenir
 const REFRESH_TOKEN_EXPIRY = '90d'; // 90 gün
 const ADMIN_TOKEN_EXPIRY = '12h';
 
@@ -32,30 +32,20 @@ function generateAdminToken(admin) {
     );
 }
 
-// Legacy admin middleware (x-admin-token header) - DEPRECATED
-function requireAdminLegacy(req, res, next) {
-    const token = req.headers["x-admin-token"];
-    if (!token || token !== process.env.ADMIN_TOKEN) {
-        return res.status(401).json({ error: "Unauthorized" });
-    }
-    next();
-}
-
-// New JWT-based admin middleware (Authorization: Bearer <token>)
+// JWT-based admin middleware (Authorization: Bearer <token> OR httpOnly cookie)
 function requireAdminJWT(req, res, next) {
     const authHeader = req.headers.authorization;
+    let token;
 
-    // Also support legacy x-admin-token during transition
-    const legacyToken = req.headers["x-admin-token"];
-    if (legacyToken && legacyToken === process.env.ADMIN_TOKEN) {
-        return next();
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.split(' ')[1];
+    } else if (req.cookies && req.cookies.admin_token) {
+        token = req.cookies.admin_token;
     }
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!token) {
         return res.status(401).json({ error: "Unauthorized: No token provided" });
     }
-
-    const token = authHeader.split(' ')[1];
 
     try {
         const decoded = jwt.verify(token, ADMIN_JWT_SECRET);
@@ -72,14 +62,18 @@ function requireAdminJWT(req, res, next) {
     }
 }
 
-// Middleware to extract user from JWT token
+// Middleware to extract user from JWT token (header or cookie)
 async function getUserFromToken(req) {
+    let token;
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return null;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.split(' ')[1];
+    } else if (req.cookies && req.cookies.access_token) {
+        token = req.cookies.access_token;
     }
 
-    const token = authHeader.split(' ')[1];
+    if (!token) return null;
+
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         return decoded;
@@ -88,26 +82,26 @@ async function getUserFromToken(req) {
     }
 }
 
-// Middleware to require authenticated user (not necessarily admin)
+// Middleware to require authenticated user (header or cookie)
 function requireUser(req, res, next) {
     const authHeader = req.headers.authorization;
-    
-    console.log('[requireUser] Auth header:', authHeader ? `Bearer ${authHeader.substring(7, 20)}...` : 'MISSING');
+    let token;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        console.log('[requireUser] ERROR: No token provided');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.split(' ')[1];
+    } else if (req.cookies && req.cookies.access_token) {
+        token = req.cookies.access_token;
+    }
+
+    if (!token) {
         return res.status(401).json({ error: "Unauthorized: No token provided" });
     }
 
-    const token = authHeader.split(' ')[1];
-
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        console.log('[requireUser] Token valid, userId:', decoded.userId);
         req.user = decoded;
         next();
     } catch (error) {
-        console.log('[requireUser] ERROR:', error.name, error.message);
         if (error.name === 'TokenExpiredError') {
             return res.status(401).json({ error: "Unauthorized: Token expired" });
         }
@@ -123,7 +117,6 @@ module.exports = {
     generateRefreshToken,
     generateAdminToken,
     requireAdmin,
-    requireAdminLegacy,
     requireAdminJWT,
     requireUser,
     getUserFromToken,

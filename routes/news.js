@@ -2,21 +2,34 @@ const express = require('express');
 const pool = require('../db');
 const { requireAdmin, requireUser } = require('../middleware/auth');
 const { extractKeyFromPublicUrl, deleteObjects } = require('../services/r2');
+const logger = require('../services/logger');
 
 // Factory function that creates router with injected middleware
 function createNewsRouter(middlewares) {
     const router = express.Router();
     const { publicLimiter, adminLimiter, validate, createNewsSchema, updateNewsSchema, apiResponse } = middlewares;
 
-    // GET /news - List all news
+    // GET /news - List all news (public sees only published)
     router.get('/', publicLimiter, async (req, res) => {
         try {
-            const { rows } = await pool.query(
-                'SELECT * FROM news ORDER BY created_at DESC'
-            );
+            // Public: only show published news where published_at is in the past or null
+            const query = `SELECT * FROM news WHERE (status IS NULL OR status = 'published') AND (published_at IS NULL OR published_at <= NOW()) ORDER BY created_at DESC`;
+            const { rows } = await pool.query(query);
             return apiResponse.success(res, rows);
         } catch (err) {
-            console.error('GET /news error:', err);
+            logger.error('GET /news error:', err);
+            return apiResponse.errors.serverError(res, 'Haberler yüklenirken hata oluştu');
+        }
+    });
+
+    // GET /news/admin - List all news including draft/scheduled (admin only)
+    router.get('/admin', adminLimiter, requireAdmin, async (req, res) => {
+        try {
+            const query = 'SELECT * FROM news ORDER BY created_at DESC';
+            const { rows } = await pool.query(query);
+            return apiResponse.success(res, rows);
+        } catch (err) {
+            logger.error('GET /news/admin error:', err);
             return apiResponse.errors.serverError(res, 'Haberler yüklenirken hata oluştu');
         }
     });
@@ -34,7 +47,7 @@ function createNewsRouter(middlewares) {
                 return apiResponse.errors.notFound(res, 'Haber');
             }
         } catch (err) {
-            console.error('GET /news/:id error:', err);
+            logger.error('GET /news/:id error:', err);
             return apiResponse.errors.serverError(res, 'Haber yüklenirken hata oluştu');
         }
     });
@@ -42,18 +55,21 @@ function createNewsRouter(middlewares) {
     // POST /news - Create news (admin only)
     router.post('/', adminLimiter, requireAdmin, validate(createNewsSchema), async (req, res) => {
         try {
-            const { title, description, content, category, author, image } = req.validatedBody || req.body;
+            const { title, description, content, category, author, image, status, publishedAt } = req.validatedBody || req.body;
+
+            const newsStatus = status || 'published';
+            const pubAt = publishedAt || (newsStatus === 'published' ? new Date().toISOString() : null);
 
             const { rows } = await pool.query(
-                `INSERT INTO news (title, description, content, category, author, image)
-                 VALUES ($1, $2, $3, $4, $5, $6)
+                `INSERT INTO news (title, description, content, category, author, image, status, published_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                  RETURNING *`,
-                [title, description, content, category || 'Genel', author, image || null]
+                [title, description, content, category || 'Genel', author, image || null, newsStatus, pubAt]
             );
 
             return apiResponse.success(res, rows[0], 201);
         } catch (err) {
-            console.error('POST /news error:', err);
+            logger.error('POST /news error:', err);
             return apiResponse.errors.serverError(res, 'Haber oluşturulurken hata oluştu');
         }
     });
@@ -108,7 +124,7 @@ function createNewsRouter(middlewares) {
                 return apiResponse.errors.notFound(res, 'Haber');
             }
         } catch (err) {
-            console.error('PATCH /news/:id error:', err);
+            logger.error('PATCH /news/:id error:', err);
             return apiResponse.errors.serverError(res, 'Haber güncellenirken hata oluştu');
         }
     });
@@ -145,7 +161,7 @@ function createNewsRouter(middlewares) {
                 // Delete image from R2 (non-blocking, log errors but don't fail the request)
                 if (imageKeys.length > 0) {
                     deleteObjects(imageKeys).catch(err => {
-                        console.error('Failed to delete news image from R2:', err);
+                        logger.error('Failed to delete news image from R2:', err);
                     });
                 }
 
@@ -154,7 +170,7 @@ function createNewsRouter(middlewares) {
                 return apiResponse.errors.notFound(res, 'Haber');
             }
         } catch (err) {
-            console.error('DELETE /news/:id error:', err);
+            logger.error('DELETE /news/:id error:', err);
             return apiResponse.errors.serverError(res, 'Haber silinirken hata oluştu');
         }
     });
@@ -205,7 +221,7 @@ function createNewsRouter(middlewares) {
 
             return apiResponse.success(res, comments);
         } catch (err) {
-            console.error('GET /news/:newsId/comments error:', err);
+            if (process.env.NODE_ENV !== 'production') logger.error('GET /news/:newsId/comments error:', err);
             return apiResponse.errors.serverError(res, 'Yorumlar yüklenirken hata oluştu');
         }
     });
@@ -250,7 +266,7 @@ function createNewsRouter(middlewares) {
                     userName = userResult.rows[0].name;
                 }
             } catch (e) {
-                console.warn('Could not fetch user name:', e.message);
+                logger.warn('Could not fetch user name:', e.message);
             }
 
             // Insert comment with optional parentId
@@ -279,7 +295,7 @@ function createNewsRouter(middlewares) {
 
             return apiResponse.success(res, comment, 201);
         } catch (err) {
-            console.error('POST /news/:newsId/comments error:', err);
+            if (process.env.NODE_ENV !== 'production') logger.error('POST /news/:newsId/comments error:', err);
             return apiResponse.errors.serverError(res, 'Yorum oluşturulurken hata oluştu');
         }
     });
@@ -300,7 +316,7 @@ function createNewsRouter(middlewares) {
                 return apiResponse.errors.notFound(res, 'Yorum');
             }
         } catch (err) {
-            console.error('DELETE /news/:newsId/comments/:commentId error:', err);
+            if (process.env.NODE_ENV !== 'production') logger.error('DELETE /news/:newsId/comments/:commentId error:', err);
             return apiResponse.errors.serverError(res, 'Yorum silinirken hata oluştu');
         }
     });

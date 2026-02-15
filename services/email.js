@@ -11,6 +11,7 @@
 
 // Ensure env vars are loaded before reading them
 require('dotenv').config();
+const logger = require('../services/logger');
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_API_URL = 'https://api.resend.com/emails';
@@ -28,7 +29,7 @@ function getValidFromAddress(fromValue) {
   const fallback = 'MRGCar <noreply@mrgcar.com>';
 
   if (!fromValue || typeof fromValue !== 'string') {
-    console.warn(`⚠️ EMAIL_FROM not set, using fallback: ${fallback}`);
+    logger.warn(`⚠️ EMAIL_FROM not set, using fallback: ${fallback}`);
     return fallback;
   }
 
@@ -39,9 +40,9 @@ function getValidFromAddress(fromValue) {
     return trimmed;
   }
 
-  console.error(`❌ Invalid EMAIL_FROM format: "${trimmed}"`);
-  console.error(`   Expected: "email@example.com" or "Name <email@example.com>"`);
-  console.error(`   Using fallback: ${fallback}`);
+  logger.error(`❌ Invalid EMAIL_FROM format: "${trimmed}"`);
+  logger.error(`   Expected: "email@example.com" or "Name <email@example.com>"`);
+  logger.error(`   Using fallback: ${fallback}`);
   return fallback;
 }
 
@@ -50,10 +51,10 @@ const EMAIL_FROM = getValidFromAddress(process.env.EMAIL_FROM);
 const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || null;
 
 // Startup logging
-console.log('📧 Email Service Configuration:');
-console.log(`   FROM: "${EMAIL_FROM}"`);
-console.log(`   REPLY_TO: "${EMAIL_REPLY_TO || '(not set)'}"`);
-console.log(`   API Key: ${RESEND_API_KEY ? '✓ Set' : '✗ Missing!'}`);
+logger.info('📧 Email Service Configuration:');
+logger.info(`   FROM: "${EMAIL_FROM}"`);
+logger.info(`   REPLY_TO: "${EMAIL_REPLY_TO || '(not set)'}"`);
+logger.info(`   API Key: ${RESEND_API_KEY ? '✓ Set' : '✗ Missing!'}`);
 
 /**
  * Send an email using Resend API
@@ -67,7 +68,7 @@ console.log(`   API Key: ${RESEND_API_KEY ? '✓ Set' : '✗ Missing!'}`);
  */
 async function sendEmail({ to, subject, html, text, replyTo }) {
   if (!RESEND_API_KEY) {
-    console.error('❌ FATAL: RESEND_API_KEY is not defined!');
+    logger.error('❌ FATAL: RESEND_API_KEY is not defined!');
     return { success: false, error: 'Email service not configured' };
   }
 
@@ -85,9 +86,9 @@ async function sendEmail({ to, subject, html, text, replyTo }) {
     payload.reply_to = replyTo || EMAIL_REPLY_TO;
   }
 
-  console.log(`📧 Sending email to: ${payload.to.join(', ')}`);
-  console.log(`   From: ${payload.from}`);
-  console.log(`   Subject: ${subject}`);
+  logger.info(`📧 Sending email to: ${payload.to.join(', ')}`);
+  logger.info(`   From: ${payload.from}`);
+  logger.info(`   Subject: ${subject}`);
 
   try {
     const response = await fetch(RESEND_API_URL, {
@@ -102,14 +103,14 @@ async function sendEmail({ to, subject, html, text, replyTo }) {
     const data = await response.json();
 
     if (response.ok) {
-      console.log(`✅ Email sent successfully! ID: ${data.id}`);
+      logger.info(`✅ Email sent successfully! ID: ${data.id}`);
       return { success: true, id: data.id };
     } else {
-      console.error('❌ Resend API Error:', JSON.stringify(data, null, 2));
+      logger.error('❌ Resend API Error:', JSON.stringify(data, null, 2));
       return { success: false, error: data.message || 'Resend API rejected request' };
     }
   } catch (error) {
-    console.error('❌ Network/Fetch Error:', error.message);
+    logger.error('❌ Network/Fetch Error:', error.message);
     return { success: false, error: error.message };
   }
 }

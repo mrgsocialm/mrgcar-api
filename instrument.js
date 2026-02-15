@@ -1,12 +1,19 @@
 // Sentry Instrumentation - Must be imported first before any other modules
 const Sentry = require("@sentry/node");
 
+// Logger loaded after Sentry init (Sentry must be first)
+let logger;
+function getLogger() {
+    if (!logger) logger = require('./services/logger');
+    return logger;
+}
+
 // Try to load profiling, but make it optional (may fail on Windows)
 let nodeProfilingIntegration;
 try {
     nodeProfilingIntegration = require("@sentry/profiling-node").nodeProfilingIntegration;
 } catch (e) {
-    console.warn("⚠️ Sentry profiling not available on this platform");
+    getLogger().warn("Sentry profiling not available on this platform");
     nodeProfilingIntegration = null;
 }
 
@@ -25,20 +32,16 @@ Sentry.init({
     debug: false,
 
     // Performance Monitoring
-    tracesSampleRate: 1.0, // Capture 100% of transactions (lower in production for high traffic)
+    tracesSampleRate: 1.0,
 
     // Profiling
-    profilesSampleRate: 1.0, // Profile 100% of sampled transactions
+    profilesSampleRate: 1.0,
 
     // Environment
     environment: process.env.NODE_ENV || "development",
 
-    // Release tracking (optional - can be set via CI/CD)
-    // release: "mrgcar-api@1.0.0",
-
     // Filter out sensitive data
     beforeSend(event) {
-        // Remove sensitive data from events if needed
         if (event.request && event.request.headers) {
             delete event.request.headers['authorization'];
             delete event.request.headers['x-admin-token'];
@@ -47,6 +50,6 @@ Sentry.init({
     },
 });
 
-console.log("✅ Sentry initialized for error monitoring and profiling");
+getLogger().info("Sentry initialized for error monitoring and profiling");
 
 module.exports = Sentry;

@@ -1,11 +1,12 @@
 const express = require('express');
 const pool = require('../db');
 const { requireAdmin } = require('../middleware/auth');
+const logger = require('../services/logger');
 
 // Factory function that creates router with injected middleware
 function createReviewsRouter(middlewares) {
     const router = express.Router();
-    const { publicLimiter, adminLimiter, apiResponse } = middlewares;
+    const { publicLimiter, adminLimiter, validate, createReviewSchema, updateReviewSchema, apiResponse } = middlewares;
 
     // GET /reviews - List all reviews (public)
     router.get('/', publicLimiter, async (req, res) => {
@@ -53,9 +54,8 @@ function createReviewsRouter(middlewares) {
 
             return apiResponse.success(res, reviews);
         } catch (err) {
-            console.error('GET /reviews error:', err);
-            console.error('Error details:', err.message, err.stack);
-            return apiResponse.errors.serverError(res, `İncelemeler yüklenirken hata oluştu: ${err.message}`);
+            logger.error('GET /reviews error:', err);
+            return apiResponse.errors.serverError(res, 'İncelemeler yüklenirken hata oluştu');
         }
     });
 
@@ -92,9 +92,8 @@ function createReviewsRouter(middlewares) {
 
             return apiResponse.success(res, reviews);
         } catch (err) {
-            console.error('GET /reviews/featured error:', err);
-            console.error('Error details:', err.message, err.stack);
-            return apiResponse.errors.serverError(res, `Öne çıkan incelemeler yüklenirken hata oluştu: ${err.message}`);
+            logger.error('GET /reviews/featured error:', err);
+            return apiResponse.errors.serverError(res, 'Öne çıkan incelemeler yüklenirken hata oluştu');
         }
     });
 
@@ -134,23 +133,17 @@ function createReviewsRouter(middlewares) {
 
             return apiResponse.success(res, review);
         } catch (err) {
-            console.error('GET /reviews/:id error:', err);
+            logger.error('GET /reviews/:id error:', err);
             return apiResponse.errors.serverError(res, 'İnceleme yüklenirken hata oluştu');
         }
     });
 
     // POST /reviews - Create review (admin only)
-    router.post('/', adminLimiter, requireAdmin, async (req, res) => {
+    router.post('/', adminLimiter, requireAdmin, validate(createReviewSchema), async (req, res) => {
         try {
-            const { carId, rating, title, content, pros, cons, isFeatured, isAdminReview, image, authorName } = req.body;
+            const { carId, rating, title, content, pros, cons, isFeatured, isAdminReview, image, authorName } = req.validatedBody;
 
-            if (!title || !content) {
-                return apiResponse.errors.badRequest(res, 'Başlık ve içerik zorunludur');
-            }
-
-            if (rating && (rating < 1 || rating > 5)) {
-                return apiResponse.errors.badRequest(res, 'Rating 1-5 arasında olmalıdır');
-            }
+            // Validation handled by Zod middleware
 
             const { rows } = await pool.query(`
                 INSERT INTO reviews (car_id, rating, title, content, pros, cons, is_featured, is_admin_review, image, author_name, status)
@@ -160,15 +153,15 @@ function createReviewsRouter(middlewares) {
 
             return apiResponse.success(res, rows[0], 201);
         } catch (err) {
-            console.error('POST /reviews error:', err);
+            logger.error('POST /reviews error:', err);
             return apiResponse.errors.serverError(res, 'İnceleme oluşturulurken hata oluştu');
         }
     });
 
     // PUT /reviews/:id - Update review (admin only)
-    router.put('/:id', adminLimiter, requireAdmin, async (req, res) => {
+    router.put('/:id', adminLimiter, requireAdmin, validate(updateReviewSchema), async (req, res) => {
         try {
-            const { carId, rating, title, content, pros, cons, isFeatured, status } = req.body;
+            const { carId, rating, title, content, pros, cons, isFeatured, status } = req.validatedBody;
 
             const { rows } = await pool.query(`
                 UPDATE reviews
@@ -191,7 +184,7 @@ function createReviewsRouter(middlewares) {
 
             return apiResponse.success(res, rows[0]);
         } catch (err) {
-            console.error('PUT /reviews/:id error:', err);
+            logger.error('PUT /reviews/:id error:', err);
             return apiResponse.errors.serverError(res, 'İnceleme güncellenirken hata oluştu');
         }
     });
@@ -210,7 +203,7 @@ function createReviewsRouter(middlewares) {
 
             return apiResponse.success(res, { message: 'İnceleme silindi' });
         } catch (err) {
-            console.error('DELETE /reviews/:id error:', err);
+            logger.error('DELETE /reviews/:id error:', err);
             return apiResponse.errors.serverError(res, 'İnceleme silinirken hata oluştu');
         }
     });

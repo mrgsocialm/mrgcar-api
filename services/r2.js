@@ -5,6 +5,7 @@
 
 const { S3Client, PutObjectCommand, DeleteObjectCommand, DeleteObjectsCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+const logger = require('../services/logger');
 
 // R2 Configuration from environment
 const R2_ENDPOINT = process.env.R2_ENDPOINT;
@@ -18,7 +19,7 @@ let s3Client = null;
 
 function initializeR2Client() {
     if (!R2_ENDPOINT || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_BUCKET) {
-        console.warn('⚠️  R2 configuration missing. Upload functionality will be disabled.');
+        logger.warn('⚠️  R2 configuration missing. Upload functionality will be disabled.');
         return null;
     }
 
@@ -36,10 +37,10 @@ function initializeR2Client() {
             },
             forcePathStyle: true, // R2 requires path-style URLs
         });
-        console.log('✅ R2 client initialized');
+        logger.info('✅ R2 client initialized');
         return s3Client;
     } catch (error) {
-        console.error('❌ Failed to initialize R2 client:', error.message);
+        logger.error('❌ Failed to initialize R2 client:', error.message);
         return null;
     }
 }
@@ -71,7 +72,7 @@ async function generatePresignedUploadUrl(key, contentType, expiresIn = 60) {
         const presignedUrl = await getSignedUrl(client, command, { expiresIn });
         return presignedUrl;
     } catch (error) {
-        console.error('❌ Failed to generate presigned URL:', error);
+        logger.error('❌ Failed to generate presigned URL:', error);
         throw new Error(`Failed to generate presigned URL: ${error.message}`);
     }
 }
@@ -118,7 +119,7 @@ function extractKeyFromPublicUrl(publicUrl) {
         
         // Check if host is allowed
         if (!allowedHosts.includes(url.hostname)) {
-            console.warn(`Rejected publicUrl from untrusted host: ${url.hostname}`);
+            logger.warn(`Rejected publicUrl from untrusted host: ${url.hostname}`);
             return null;
         }
 
@@ -131,13 +132,13 @@ function extractKeyFromPublicUrl(publicUrl) {
         
         // Security: prevent path traversal in extracted key
         if (key.includes('..') || key.includes('\\')) {
-            console.warn(`Rejected publicUrl with dangerous path: ${key}`);
+            logger.warn(`Rejected publicUrl with dangerous path: ${key}`);
             return null;
         }
         
         return key;
     } catch (error) {
-        console.warn(`Failed to parse publicUrl: ${publicUrl}`, error.message);
+        logger.warn(`Failed to parse publicUrl: ${publicUrl}`, error.message);
         return null;
     }
 }
@@ -169,9 +170,9 @@ async function deleteObject(key) {
         });
 
         await client.send(command);
-        console.log(`✅ Deleted R2 object: ${key}`);
+        logger.info(`✅ Deleted R2 object: ${key}`);
     } catch (error) {
-        console.error(`❌ Failed to delete R2 object ${key}:`, error);
+        logger.error(`❌ Failed to delete R2 object ${key}:`, error);
         throw new Error(`Failed to delete object: ${error.message}`);
     }
 }

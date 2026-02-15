@@ -53,6 +53,7 @@ function mapForumPost(row) {
         viewCount: row.view_count,
         time: formatTimeAgo(row.created_at),
         isPinned: row.is_pinned,
+        isLocked: row.is_locked || false,
     };
 }
 

@@ -1,6 +1,52 @@
 const express = require('express');
 const crypto = require('crypto');
 const pool = require('../db');
+const logger = require('../services/logger');
+
+// --- Refresh Token Helpers ---
+
+/**
+ * Hash a refresh token using SHA-256 for DB storage.
+ * We never store raw tokens — only hashes.
+ */
+function hashToken(token) {
+    return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+/**
+ * Store a refresh token hash in DB with a family ID.
+ * Family ID groups tokens from the same login session for reuse detection.
+ */
+async function storeRefreshToken(userId, token, familyId) {
+    const tokenHash = hashToken(token);
+    const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000); // 90 days
+
+    await pool.query(
+        `INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at)
+         VALUES ($1, $2, $3, $4)`,
+        [userId, tokenHash, familyId, expiresAt]
+    );
+}
+
+/**
+ * Revoke a specific refresh token by its hash.
+ */
+async function revokeRefreshToken(tokenHash) {
+    await pool.query(
+        'UPDATE refresh_tokens SET is_revoked = true WHERE token_hash = $1',
+        [tokenHash]
+    );
+}
+
+/**
+ * Revoke ALL tokens in a family (stolen token detection).
+ */
+async function revokeTokenFamily(familyId) {
+    await pool.query(
+        'UPDATE refresh_tokens SET is_revoked = true WHERE family_id = $1',
+        [familyId]
+    );
+}
 
 // Factory function that creates router with injected dependencies
 function createAuthRouter(deps) {
@@ -15,6 +61,47 @@ function createAuthRouter(deps) {
         generateRefreshToken,
         emailService
     } = deps;
+
+    const IS_PROD = process.env.NODE_ENV === 'production';
+
+    /**
+     * Set httpOnly auth cookies on response.
+     * Browsers will store these automatically; mobile apps ignore them.
+     */
+    function setAuthCookies(res, accessToken, refreshToken) {
+        const cookieBase = {
+            httpOnly: true,
+            secure: IS_PROD,              // HTTPS only in production
+            sameSite: IS_PROD ? 'none' : 'lax', // cross-domain in prod
+            domain: IS_PROD ? '.mrgcar.com' : undefined,
+        };
+
+        res.cookie('access_token', accessToken, {
+            ...cookieBase,
+            maxAge: 15 * 60 * 1000,       // 15 minutes
+            path: '/',
+        });
+
+        if (refreshToken) {
+            res.cookie('refresh_token', refreshToken, {
+                ...cookieBase,
+                maxAge: 90 * 24 * 60 * 60 * 1000, // 90 days
+                path: '/v1/auth',           // only sent to auth endpoints
+            });
+        }
+    }
+
+    /** Clear auth cookies on logout. */
+    function clearAuthCookies(res) {
+        const cookieBase = {
+            httpOnly: true,
+            secure: IS_PROD,
+            sameSite: IS_PROD ? 'none' : 'lax',
+            domain: IS_PROD ? '.mrgcar.com' : undefined,
+        };
+        res.clearCookie('access_token', { ...cookieBase, path: '/' });
+        res.clearCookie('refresh_token', { ...cookieBase, path: '/v1/auth' });
+    }
 
     // Rate limit tracking for forgot-password
     const forgotPasswordAttempts = new Map();
@@ -69,6 +156,13 @@ function createAuthRouter(deps) {
                 const accessToken = generateAccessToken(user);
                 const refreshToken = generateRefreshToken(user);
 
+                // Store refresh token in DB with new family
+                const familyId = crypto.randomUUID();
+                await storeRefreshToken(user.id, refreshToken, familyId);
+
+                // Set httpOnly cookies for browser clients
+                setAuthCookies(res, accessToken, refreshToken);
+
                 res.json({
                     success: true,
                     user: {
@@ -85,7 +179,7 @@ function createAuthRouter(deps) {
                 res.status(401).json({ success: false, error: 'Geçersiz email veya şifre' });
             }
         } catch (error) {
-            console.error('POST /auth/login error:', error);
+            logger.error('POST /auth/login error:', error);
             res.status(500).json({ success: false, error: 'Sunucu hatası' });
         }
     });
@@ -119,6 +213,13 @@ function createAuthRouter(deps) {
             const accessToken = generateAccessToken(newUser);
             const refreshToken = generateRefreshToken(newUser);
 
+            // Store refresh token in DB with new family
+            const familyId = crypto.randomUUID();
+            await storeRefreshToken(newUser.id, refreshToken, familyId);
+
+            // Set httpOnly cookies for browser clients
+            setAuthCookies(res, accessToken, refreshToken);
+
             res.status(201).json({
                 success: true,
                 user: {
@@ -130,7 +231,7 @@ function createAuthRouter(deps) {
                 refreshToken
             });
         } catch (error) {
-            console.error('POST /auth/register error:', error);
+            logger.error('POST /auth/register error:', error);
             res.status(500).json({ success: false, error: 'Sunucu hatası' });
         }
     });
@@ -175,7 +276,7 @@ function createAuthRouter(deps) {
                     user.avatar_url = photoUrl;
                 }
 
-                console.log(`Google login successful for existing user: ${user.email}`);
+                logger.info(`Google login successful for existing user: ${user.email}`);
             } else {
                 // New user - create account
                 // Generate a random password hash (user won't use it, they'll login with Google)
@@ -192,12 +293,19 @@ function createAuthRouter(deps) {
                 );
 
                 user = result.rows[0];
-                console.log(`New user created via Google Sign-In: ${user.email}`);
+                logger.info(`New user created via Google Sign-In: ${user.email}`);
             }
 
             // Generate tokens
             const accessToken = generateAccessToken(user);
             const refreshToken = generateRefreshToken(user);
+
+            // Store refresh token in DB with new family
+            const familyId = crypto.randomUUID();
+            await storeRefreshToken(user.id, refreshToken, familyId);
+
+            // Set httpOnly cookies for browser clients
+            setAuthCookies(res, accessToken, refreshToken);
 
             res.json({
                 success: true,
@@ -212,7 +320,113 @@ function createAuthRouter(deps) {
                 refreshToken
             });
         } catch (error) {
-            console.error('POST /auth/google error:', error);
+            logger.error('POST /auth/google error:', error);
+            res.status(500).json({ success: false, error: 'Sunucu hatası' });
+        }
+    });
+
+    // POST /auth/refresh - Rotate refresh token
+    router.post('/refresh', async (req, res) => {
+        // Read from body or cookie
+        const oldRefreshToken = (req.body && req.body.refreshToken) || (req.cookies && req.cookies.refresh_token);
+
+        if (!oldRefreshToken) {
+            return res.status(400).json({ success: false, error: 'Refresh token gerekli' });
+        }
+
+        try {
+            // 1. Verify the JWT signature
+            let decoded;
+            try {
+                decoded = jwt.verify(oldRefreshToken, JWT_REFRESH_SECRET);
+            } catch (err) {
+                return res.status(401).json({ success: false, error: 'Geçersiz veya süresi dolmuş refresh token' });
+            }
+
+            // 2. Look up the token hash in DB
+            const oldHash = hashToken(oldRefreshToken);
+            const tokenResult = await pool.query(
+                'SELECT id, user_id, family_id, is_revoked, expires_at FROM refresh_tokens WHERE token_hash = $1',
+                [oldHash]
+            );
+
+            if (tokenResult.rows.length === 0) {
+                return res.status(401).json({ success: false, error: 'Refresh token bulunamadı' });
+            }
+
+            const storedToken = tokenResult.rows[0];
+
+            // 3. Check if token was already revoked (STOLEN TOKEN DETECTION)
+            if (storedToken.is_revoked) {
+                // Someone is reusing a revoked token — revoke the entire family!
+                logger.warn('Refresh token reuse detected! Revoking entire family.', {
+                    userId: storedToken.user_id,
+                    familyId: storedToken.family_id,
+                });
+                await revokeTokenFamily(storedToken.family_id);
+                return res.status(401).json({ success: false, error: 'Token güvenlik ihlali algılandı. Lütfen tekrar giriş yapın.' });
+            }
+
+            // 4. Check expiry
+            if (new Date(storedToken.expires_at) < new Date()) {
+                await revokeRefreshToken(oldHash);
+                return res.status(401).json({ success: false, error: 'Refresh token süresi dolmuş' });
+            }
+
+            // 5. Revoke the old token
+            await revokeRefreshToken(oldHash);
+
+            // 6. Get current user data
+            const userResult = await pool.query(
+                'SELECT id, email, name, avatar_url, banner_url FROM users WHERE id = $1',
+                [storedToken.user_id]
+            );
+
+            if (userResult.rows.length === 0) {
+                return res.status(401).json({ success: false, error: 'Kullanıcı bulunamadı' });
+            }
+
+            const user = userResult.rows[0];
+
+            // 7. Generate new token pair (same family)
+            const newAccessToken = generateAccessToken(user);
+            const newRefreshToken = generateRefreshToken(user);
+            await storeRefreshToken(user.id, newRefreshToken, storedToken.family_id);
+
+            logger.info('Refresh token rotated', { userId: user.id });
+
+            // Set httpOnly cookies for browser clients
+            setAuthCookies(res, newAccessToken, newRefreshToken);
+
+            res.json({
+                success: true,
+                accessToken: newAccessToken,
+                refreshToken: newRefreshToken,
+            });
+        } catch (error) {
+            logger.error('POST /auth/refresh error:', error);
+            res.status(500).json({ success: false, error: 'Sunucu hatası' });
+        }
+    });
+
+    // POST /auth/logout - Revoke refresh token
+    router.post('/logout', async (req, res) => {
+        // Read from body or cookie
+        const token = (req.body && req.body.refreshToken) || (req.cookies && req.cookies.refresh_token);
+
+        if (!token) {
+            // No token provided — still return success (idempotent)
+            return res.json({ success: true, message: 'Çıkış yapıldı' });
+        }
+
+        try {
+            const tokenHash = hashToken(token);
+            await revokeRefreshToken(tokenHash);
+            clearAuthCookies(res);
+            logger.info('User logged out, refresh token revoked');
+            res.json({ success: true, message: 'Çıkış yapıldı' });
+        } catch (error) {
+            logger.error('POST /auth/logout error:', error);
             res.status(500).json({ success: false, error: 'Sunucu hatası' });
         }
     });
@@ -331,7 +545,7 @@ function createAuthRouter(deps) {
             if (error.name === 'TokenExpiredError') {
                 return res.status(401).json({ success: false, error: 'Token süresi dolmuş' });
             }
-            console.error('PATCH /auth/profile error:', error);
+            logger.error('PATCH /auth/profile error:', error);
             return res.status(500).json({ success: false, error: 'Sunucu hatası' });
         }
     });
@@ -358,7 +572,7 @@ function createAuthRouter(deps) {
             );
 
             if (userResult.rows.length === 0) {
-                console.log(`Password reset requested for non-existent email: ${email}`);
+                logger.info(`Password reset requested for non-existent email: ${email}`);
                 return res.json({
                     success: true,
                     message: 'Eğer bu email kayıtlıysa, şifre sıfırlama kodu gönderildi.'
@@ -383,7 +597,7 @@ function createAuthRouter(deps) {
             if (emailService) {
                 const emailResult = await emailService.sendPasswordResetEmail(email, code, user.name);
                 if (!emailResult.success) {
-                    console.error('Failed to send reset email:', emailResult.error);
+                    logger.error('Failed to send reset email:', emailResult.error);
                     // DEBUG: Return error to client to visualize the problem
                     return res.status(500).json({
                         success: false,
@@ -392,14 +606,14 @@ function createAuthRouter(deps) {
                 }
             }
 
-            console.log(`Password reset code sent to ${email}: ${code}`);
+            logger.info(`Password reset code sent to ${email}: ${code}`);
 
             return res.json({
                 success: true,
                 message: 'Eğer bu email kayıtlıysa, şifre sıfırlama kodu gönderildi.'
             });
         } catch (error) {
-            console.error('POST /auth/forgot-password error:', error);
+            logger.error('POST /auth/forgot-password error:', error);
             return res.status(500).json({ success: false, error: 'Sunucu hatası' });
         }
     });
@@ -452,7 +666,7 @@ function createAuthRouter(deps) {
                 message: 'Kod doğrulandı. Şimdi yeni şifrenizi belirleyebilirsiniz.'
             });
         } catch (error) {
-            console.error('POST /auth/verify-reset-token error:', error);
+            logger.error('POST /auth/verify-reset-token error:', error);
             return res.status(500).json({ success: false, error: 'Sunucu hatası' });
         }
     });
@@ -499,14 +713,14 @@ function createAuthRouter(deps) {
                 [tokenId]
             );
 
-            console.log(`Password reset successful for ${email}`);
+            logger.info(`Password reset successful for ${email}`);
 
             return res.json({
                 success: true,
                 message: 'Şifreniz başarıyla değiştirildi. Yeni şifrenizle giriş yapabilirsiniz.'
             });
         } catch (error) {
-            console.error('POST /auth/reset-password error:', error);
+            logger.error('POST /auth/reset-password error:', error);
             return res.status(500).json({ success: false, error: 'Sunucu hatası' });
         }
     });
@@ -574,7 +788,7 @@ function createAuthRouter(deps) {
                 [newPasswordHash, userId]
             );
 
-            console.log(`Password changed successfully for user ${user.email}`);
+            logger.info(`Password changed successfully for user ${user.email}`);
 
             return res.json({
                 success: true,
@@ -584,7 +798,7 @@ function createAuthRouter(deps) {
             if (error.name === 'TokenExpiredError') {
                 return res.status(401).json({ success: false, error: 'Token süresi dolmuş' });
             }
-            console.error('POST /auth/change-password error:', error);
+            logger.error('POST /auth/change-password error:', error);
             return res.status(500).json({ success: false, error: 'Sunucu hatası' });
         }
     });

@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db');
 const { requireAdmin, requireUser } = require('../middleware/auth');
 const { mapForumPost } = require('../utils/helpers');
+const logger = require('../services/logger');
 
 // Factory function that creates router with injected middleware
 function createForumRouter(middlewares) {
@@ -12,11 +13,31 @@ function createForumRouter(middlewares) {
     router.get('/categories', publicLimiter, async (req, res) => {
         try {
             const { rows } = await pool.query(
-                'SELECT * FROM forum_categories ORDER BY post_count DESC, name ASC'
+                `SELECT fc.*, 
+                    COALESCE(pc.cnt, 0) AS actual_post_count
+                 FROM forum_categories fc
+                 LEFT JOIN (
+                    SELECT category_id, COUNT(*) AS cnt 
+                    FROM forum_posts 
+                    GROUP BY category_id
+                 ) pc ON pc.category_id = fc.id
+                 ORDER BY COALESCE(pc.cnt, 0) DESC, fc.name ASC`
             );
-            return apiResponse.success(res, rows);
+            const mapped = rows.map(row => ({
+                id: row.id,
+                name: row.name,
+                description: row.description,
+                icon: row.icon,
+                color: row.color,
+                type: row.type,
+                postCount: parseInt(row.actual_post_count) || 0,
+                memberCount: row.member_count || 0,
+                lastActivityTime: row.last_activity_time || null,
+                imageUrl: row.image_url || null,
+            }));
+            return apiResponse.success(res, mapped);
         } catch (err) {
-            console.error('GET /forum/categories error:', err);
+            logger.error('GET /forum/categories error:', err);
             return apiResponse.errors.serverError(res, 'Forum kategorileri yüklenirken hata oluştu');
         }
     });
@@ -24,24 +45,27 @@ function createForumRouter(middlewares) {
     // GET /forum/posts - List all forum posts
     router.get('/posts', publicLimiter, async (req, res) => {
         try {
-            const { category, limit = 50, offset = 0 } = req.query;
+            const { category, category_id, limit = 50, offset = 0 } = req.query;
 
             let query = 'SELECT * FROM forum_posts';
             const params = [];
             let paramIndex = 1;
 
-            if (category) {
+            if (category_id) {
+                query += ` WHERE category_id = $${paramIndex++}`;
+                params.push(category_id);
+            } else if (category) {
                 query += ` WHERE category = $${paramIndex++}`;
                 params.push(category);
             }
 
-            query += ` ORDER BY created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+            query += ` ORDER BY is_pinned DESC, created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
             params.push(parseInt(limit), parseInt(offset));
 
             const { rows } = await pool.query(query, params);
             return apiResponse.success(res, rows.map(mapForumPost));
         } catch (err) {
-            console.error('GET /forum/posts error:', err);
+            logger.error('GET /forum/posts error:', err);
             return apiResponse.errors.serverError(res, 'Forum gönderileri yüklenirken hata oluştu');
         }
     });
@@ -51,12 +75,12 @@ function createForumRouter(middlewares) {
         try {
             const { limit = 10 } = req.query;
             const { rows } = await pool.query(
-                'SELECT * FROM forum_posts ORDER BY created_at DESC LIMIT $1',
+                'SELECT * FROM forum_posts ORDER BY is_pinned DESC, created_at DESC LIMIT $1',
                 [parseInt(limit)]
             );
             return apiResponse.success(res, rows.map(mapForumPost));
         } catch (err) {
-            console.error('GET /forum/posts/recent error:', err);
+            logger.error('GET /forum/posts/recent error:', err);
             return apiResponse.errors.serverError(res, 'Son gönderiler yüklenirken hata oluştu');
         }
     });
@@ -71,7 +95,7 @@ function createForumRouter(middlewares) {
             );
             return apiResponse.success(res, rows.map(mapForumPost));
         } catch (err) {
-            console.error('GET /forum/posts/popular error:', err);
+            logger.error('GET /forum/posts/popular error:', err);
             return apiResponse.errors.serverError(res, 'Popüler gönderiler yüklenirken hata oluştu');
         }
     });
@@ -89,7 +113,7 @@ function createForumRouter(middlewares) {
                 return apiResponse.errors.notFound(res, 'Forum gönderisi');
             }
         } catch (err) {
-            console.error('GET /forum/posts/:id error:', err);
+            logger.error('GET /forum/posts/:id error:', err);
             return apiResponse.errors.serverError(res, 'Forum gönderisi yüklenirken hata oluştu');
         }
     });
@@ -106,10 +130,54 @@ function createForumRouter(middlewares) {
                 [title, description, content, category || 'Genel Sohbet', categoryId || 'general', userName || 'Anonim', carBrand || null, carModel || null]
             );
 
+            // Update post_count on category
+            if (categoryId) {
+                await pool.query(
+                    'UPDATE forum_categories SET post_count = post_count + 1 WHERE id = $1',
+                    [categoryId]
+                );
+            }
+
             return apiResponse.success(res, mapForumPost(rows[0]), 201);
         } catch (err) {
-            console.error('POST /forum/posts error:', err);
+            logger.error('POST /forum/posts error:', err);
             return apiResponse.errors.serverError(res, 'Forum gönderisi oluşturulurken hata oluştu');
+        }
+    });
+
+    // PATCH /forum/posts/:id/pin - Toggle pin status (admin only)
+    router.patch('/posts/:id/pin', adminLimiter, requireAdmin, async (req, res) => {
+        try {
+            const { rows } = await pool.query(
+                'UPDATE forum_posts SET is_pinned = NOT is_pinned, updated_at = NOW() WHERE id = $1 RETURNING *',
+                [req.params.id]
+            );
+            if (rows.length > 0) {
+                return apiResponse.success(res, mapForumPost(rows[0]));
+            } else {
+                return apiResponse.errors.notFound(res, 'Forum gönderisi');
+            }
+        } catch (err) {
+            if (process.env.NODE_ENV !== 'production') logger.error('PATCH /forum/posts/:id/pin error:', err);
+            return apiResponse.errors.serverError(res, 'Pin durumu güncellenirken hata oluştu');
+        }
+    });
+
+    // PATCH /forum/posts/:id/lock - Toggle lock status (admin only)
+    router.patch('/posts/:id/lock', adminLimiter, requireAdmin, async (req, res) => {
+        try {
+            const { rows } = await pool.query(
+                'UPDATE forum_posts SET is_locked = NOT COALESCE(is_locked, false), updated_at = NOW() WHERE id = $1 RETURNING *',
+                [req.params.id]
+            );
+            if (rows.length > 0) {
+                return apiResponse.success(res, mapForumPost(rows[0]));
+            } else {
+                return apiResponse.errors.notFound(res, 'Forum gönderisi');
+            }
+        } catch (err) {
+            if (process.env.NODE_ENV !== 'production') logger.error('PATCH /forum/posts/:id/lock error:', err);
+            return apiResponse.errors.serverError(res, 'Kilit durumu güncellenirken hata oluştu');
         }
     });
 
@@ -155,7 +223,7 @@ function createForumRouter(middlewares) {
                 return apiResponse.errors.notFound(res, 'Forum gönderisi');
             }
         } catch (err) {
-            console.error('PATCH /forum/posts/:id error:', err);
+            logger.error('PATCH /forum/posts/:id error:', err);
             return apiResponse.errors.serverError(res, 'Forum gönderisi güncellenirken hata oluştu');
         }
     });
@@ -168,12 +236,19 @@ function createForumRouter(middlewares) {
                 [req.params.id]
             );
             if (rows.length > 0) {
+                // Decrement post_count on category
+                if (rows[0].category_id) {
+                    await pool.query(
+                        'UPDATE forum_categories SET post_count = GREATEST(post_count - 1, 0) WHERE id = $1',
+                        [rows[0].category_id]
+                    );
+                }
                 return apiResponse.success(res, { message: 'Forum gönderisi silindi', post: mapForumPost(rows[0]) });
             } else {
                 return apiResponse.errors.notFound(res, 'Forum gönderisi');
             }
         } catch (err) {
-            console.error('DELETE /forum/posts/:id error:', err);
+            logger.error('DELETE /forum/posts/:id error:', err);
             return apiResponse.errors.serverError(res, 'Forum gönderisi silinirken hata oluştu');
         }
     });
@@ -225,7 +300,7 @@ function createForumRouter(middlewares) {
 
             return apiResponse.success(res, replies);
         } catch (err) {
-            console.error('GET /forum/posts/:postId/replies error:', err);
+            logger.error('GET /forum/posts/:postId/replies error:', err);
             return apiResponse.errors.serverError(res, 'Cevaplar yüklenirken hata oluştu');
         }
     });
@@ -245,13 +320,15 @@ function createForumRouter(middlewares) {
                 return apiResponse.errors.badRequest(res, 'Cevap içeriği 5000 karakterden uzun olamaz');
             }
 
-            // Check if post exists
-            const postCheck = await pool.query('SELECT id FROM forum_posts WHERE id = $1', [postId]);
+            // Check if post exists and is not locked
+            const postCheck = await pool.query('SELECT id, is_locked FROM forum_posts WHERE id = $1', [postId]);
             if (postCheck.rows.length === 0) {
                 return apiResponse.errors.notFound(res, 'Forum gönderisi');
             }
 
-            // If parentId is provided, verify parent reply exists
+            if (postCheck.rows[0].is_locked) {
+                return apiResponse.errors.badRequest(res, 'Bu konu kilitlenmiş, yeni cevap eklenemez');
+            }
             let replyToUserId = null;
             if (parentId) {
                 const parentCheck = await pool.query('SELECT id, user_id FROM forum_replies WHERE id = $1 AND post_id = $2', [parentId, postId]);
@@ -269,7 +346,7 @@ function createForumRouter(middlewares) {
                     userName = userResult.rows[0].name;
                 }
             } catch (e) {
-                console.warn('Could not fetch user name:', e.message);
+                logger.warn('Could not fetch user name:', e.message);
             }
 
             // Insert reply with optional parentId
@@ -302,7 +379,7 @@ function createForumRouter(middlewares) {
 
             return apiResponse.success(res, reply, 201);
         } catch (err) {
-            console.error('POST /forum/posts/:postId/replies error:', err);
+            logger.error('POST /forum/posts/:postId/replies error:', err);
             return apiResponse.errors.serverError(res, 'Cevap oluşturulurken hata oluştu');
         }
     });
@@ -329,7 +406,7 @@ function createForumRouter(middlewares) {
                 return apiResponse.errors.notFound(res, 'Cevap');
             }
         } catch (err) {
-            console.error('DELETE /forum/posts/:postId/replies/:replyId error:', err);
+            logger.error('DELETE /forum/posts/:postId/replies/:replyId error:', err);
             return apiResponse.errors.serverError(res, 'Cevap silinirken hata oluştu');
         }
     });

@@ -20,83 +20,98 @@ describe('API Smoke Tests', () => {
     });
 
     describe('Health Check', () => {
-        test('GET / should return status ok', async () => {
+        test('GET / should return health status', async () => {
             const res = await request(app).get('/');
-            expect(res.statusCode).toBe(200);
-            expect(res.body).toHaveProperty('status', 'ok');
+            // 200 if DB connected, 503 if degraded (no DB)
+            expect([200, 503]).toContain(res.statusCode);
+            expect(res.body).toHaveProperty('status');
         });
     });
 
-    describe('Cars Routes', () => {
-        test('GET /cars should respond (may error without DB)', async () => {
-            const res = await request(app).get('/cars');
+    describe('API v1 Cars Routes', () => {
+        test('GET /v1/cars should respond (may error without DB)', async () => {
+            const res = await request(app).get('/v1/cars');
             // Route is mounted - may return 500 if no DB, 200 if DB connected
             expect([200, 500]).toContain(res.statusCode);
         });
 
-        test('GET /cars/slider should respond (may error without DB)', async () => {
-            const res = await request(app).get('/cars/slider');
+        test('GET /v1/cars/slider should respond (may error without DB)', async () => {
+            const res = await request(app).get('/v1/cars/slider');
             expect([200, 500]).toContain(res.statusCode);
         });
 
-        test('GET /cars/123 should respond (may error without DB)', async () => {
-            const res = await request(app).get('/cars/123');
+        test('GET /v1/cars/123 should respond (may error without DB)', async () => {
+            const res = await request(app).get('/v1/cars/123');
             // 404 if not found, 500 if no DB, 200 if found
             expect([200, 404, 500]).toContain(res.statusCode);
         });
 
-        test('POST /cars without auth should return 401', async () => {
+        test('POST /v1/cars without auth should return 401', async () => {
             const res = await request(app)
-                .post('/cars')
+                .post('/v1/cars')
                 .send({ make: 'Test', model: 'Car' });
             expect(res.statusCode).toBe(401);
         });
     });
 
-    describe('Auth Routes', () => {
-        test('POST /auth/login with invalid credentials should respond', async () => {
+    describe('API v1 Auth Routes', () => {
+        test('POST /v1/auth/login with invalid credentials should respond', async () => {
             const res = await request(app)
-                .post('/auth/login')
+                .post('/v1/auth/login')
                 .send({ email: 'test@test.com', password: 'test' });
             expect([401, 500]).toContain(res.statusCode);
         });
 
-        test('GET /auth/me without token should return 401', async () => {
-            const res = await request(app).get('/auth/me');
+        test('GET /v1/auth/me without token should return 401', async () => {
+            const res = await request(app).get('/v1/auth/me');
             expect(res.statusCode).toBe(401);
         });
     });
 
-    describe('Admin Routes', () => {
-        test('POST /admin/login with invalid credentials should respond', async () => {
+    describe('API v1 Admin Routes', () => {
+        test('POST /v1/admin/login with invalid credentials should respond', async () => {
             const res = await request(app)
-                .post('/admin/login')
+                .post('/v1/admin/login')
                 .send({ email: 'admin@test.com', password: 'wrong' });
             expect([401, 500]).toContain(res.statusCode);
         });
 
-        test('GET /admin/me without token should return 401', async () => {
-            const res = await request(app).get('/admin/me');
+        test('GET /v1/admin/me without token should return 401', async () => {
+            const res = await request(app).get('/v1/admin/me');
             expect(res.statusCode).toBe(401);
         });
     });
 
-    describe('Upload Routes', () => {
-        test('POST /uploads/presign without auth should return 401', async () => {
+    describe('API v1 Upload Routes', () => {
+        test('POST /v1/uploads/presign without auth should return 401', async () => {
             const res = await request(app)
-                .post('/uploads/presign')
+                .post('/v1/uploads/presign')
                 .send({ filename: 'test.jpg', contentType: 'image/jpeg' });
             expect(res.statusCode).toBe(401);
         });
 
-        test('POST /uploads/presign with invalid body should return 400', async () => {
+        test('POST /v1/uploads/presign with invalid body should return 400', async () => {
             // Mock admin token (in real test, use actual token)
             const res = await request(app)
-                .post('/uploads/presign')
+                .post('/v1/uploads/presign')
                 .set('Authorization', 'Bearer mock-admin-token')
                 .send({ filename: 'test.txt', contentType: 'text/plain' });
             // May return 401 (invalid token) or 400 (validation error)
             expect([400, 401]).toContain(res.statusCode);
+        });
+    });
+
+    describe('Swagger Docs', () => {
+        test('GET /v1/docs should serve Swagger UI', async () => {
+            const res = await request(app).get('/v1/docs/');
+            expect([200, 301, 302]).toContain(res.statusCode);
+        });
+
+        test('GET /v1/docs.json should return OpenAPI spec', async () => {
+            const res = await request(app).get('/v1/docs.json');
+            expect(res.statusCode).toBe(200);
+            expect(res.body).toHaveProperty('openapi');
+            expect(res.body.info.title).toBe('MRGCar API');
         });
     });
 });

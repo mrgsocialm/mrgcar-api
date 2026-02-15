@@ -18,6 +18,7 @@
     "@sentry/node": "^10.32.1",
     "@sentry/profiling-node": "^10.32.1",
     "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
@@ -26,12 +27,15 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.16.3",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "winston": "^3.19.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "jest": "^30.2.0",
     "nodemon": "^3.1.11",
-    "supertest": "^7.1.4",
+    "supertest": "^7.2.2",
     "typescript": "^5.9.3"
   }
 }

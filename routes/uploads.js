@@ -8,6 +8,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { requireAdmin, requireUser } = require('../middleware/auth');
 const { generatePresignedUploadUrl, getPublicUrl, isConfigured, deleteObjects, extractKeyFromPublicUrl } = require('../services/r2');
+const logger = require('../services/logger');
 
 function createUploadsRouter(middlewares) {
     const router = express.Router();
@@ -131,7 +132,7 @@ function createUploadsRouter(middlewares) {
                 maxSizeBytes: 5 * 1024 * 1024, // 5MB max
             });
         } catch (error) {
-            console.error('POST /uploads/presign error:', error);
+            logger.error('POST /uploads/presign error:', error);
             return apiResponse.errors.serverError(res, `Presigned URL oluşturulurken hata oluştu: ${error.message}`);
         }
     });
@@ -197,7 +198,7 @@ function createUploadsRouter(middlewares) {
             const result = await deleteObjects(keysToDelete);
 
             if (result.errors.length > 0) {
-                console.warn('Some objects failed to delete:', result.errors);
+                logger.warn('Some objects failed to delete:', result.errors);
                 // Still return success if at least some were deleted
                 if (result.deleted.length === 0) {
                     return apiResponse.errors.serverError(res, `Failed to delete objects: ${result.errors.map(e => e.error).join(', ')}`);
@@ -214,7 +215,7 @@ function createUploadsRouter(middlewares) {
                 message: `Successfully deleted ${result.deleted.length} object(s)`,
             });
         } catch (error) {
-            console.error('DELETE /uploads error:', error);
+            logger.error('DELETE /uploads error:', error);
             return apiResponse.errors.serverError(res, `Dosya silinirken hata oluştu: ${error.message}`);
         }
     });

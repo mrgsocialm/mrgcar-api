@@ -3,6 +3,7 @@ const pool = require('../db');
 const { requireAdmin } = require('../middleware/auth');
 const { mapCarRow } = require('../utils/helpers');
 const { extractKeyFromPublicUrl, deleteObjects } = require('../services/r2');
+const logger = require('../services/logger');
 
 // Transform admin panel data format to app format
 function transformCarDataForApp(data) {
@@ -99,7 +100,7 @@ function createCarsRouter(middlewares) {
                     try {
                         data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
                     } catch (e) {
-                        console.warn('Failed to parse car data JSON:', e);
+                        logger.warn('Failed to parse car data JSON:', e);
                         data = {};
                     }
                 }
@@ -126,7 +127,7 @@ function createCarsRouter(middlewares) {
                 };
             }));
         } catch (err) {
-            console.error("GET /cars/slider error:", err);
+            logger.error("GET /cars/slider error:", err);
             return apiResponse.errors.serverError(res, 'Slider verileri yüklenirken hata oluştu');
         }
     });
@@ -164,7 +165,7 @@ function createCarsRouter(middlewares) {
                 hasMore: offset + rows.length < total,
             });
         } catch (err) {
-            console.error("GET /cars error:", err);
+            logger.error("GET /cars error:", err);
             return apiResponse.errors.serverError(res, 'Araçlar yüklenirken hata oluştu');
         }
     });
@@ -186,7 +187,7 @@ function createCarsRouter(middlewares) {
 
             return apiResponse.success(res, mapCarRow(rows[0]), 201);
         } catch (err) {
-            console.error("POST /cars error:", err);
+            logger.error("POST /cars error:", err);
             return apiResponse.errors.serverError(res, 'Araç oluşturulurken hata oluştu');
         }
     });
@@ -204,7 +205,7 @@ function createCarsRouter(middlewares) {
                 return apiResponse.errors.notFound(res, 'Araç');
             }
         } catch (err) {
-            console.error("GET /cars/:id error:", err);
+            logger.error("GET /cars/:id error:", err);
             return apiResponse.errors.serverError(res, 'Araç yüklenirken hata oluştu');
         }
     });
@@ -281,7 +282,7 @@ function createCarsRouter(middlewares) {
                 return apiResponse.errors.notFound(res, 'Araç');
             }
         } catch (err) {
-            console.error("PATCH /cars/:id error:", err);
+            logger.error("PATCH /cars/:id error:", err);
             return apiResponse.errors.serverError(res, 'Araç güncellenirken hata oluştu');
         }
     });
@@ -343,7 +344,7 @@ function createCarsRouter(middlewares) {
                 // Delete images from R2 (non-blocking, log errors but don't fail the request)
                 if (imageKeys.length > 0) {
                     deleteObjects(imageKeys).catch(err => {
-                        console.error('Failed to delete car images from R2:', err);
+                        logger.error('Failed to delete car images from R2:', err);
                     });
                 }
 
@@ -352,7 +353,7 @@ function createCarsRouter(middlewares) {
                 return apiResponse.errors.notFound(res, 'Araç');
             }
         } catch (err) {
-            console.error("DELETE /cars/:id error:", err);
+            logger.error("DELETE /cars/:id error:", err);
             return apiResponse.errors.serverError(res, 'Araç silinirken hata oluştu');
         }
     });

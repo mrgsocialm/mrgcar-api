@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db');
 const { requireAdmin } = require('../middleware/auth');
 const { extractKeyFromPublicUrl, deleteObjects } = require('../services/r2');
+const logger = require('../services/logger');
 
 // Factory function that creates router with injected middleware
 function createSlidersRouter(middlewares) {
@@ -30,7 +31,7 @@ function createSlidersRouter(middlewares) {
                     source: 'slider'
                 })));
             } catch (e) {
-                console.warn('Sliders table query failed:', e.message);
+                logger.warn('Sliders table query failed:', e.message);
             }
             
             // 2. Get cars with show_in_slider = TRUE
@@ -72,7 +73,7 @@ function createSlidersRouter(middlewares) {
                     });
                 });
             } catch (e) {
-                console.warn('Cars slider query failed:', e.message);
+                logger.warn('Cars slider query failed:', e.message);
             }
             
             // 3. Get news with show_in_slider flag (if exists in future)
@@ -83,7 +84,7 @@ function createSlidersRouter(middlewares) {
             
             return apiResponse.success(res, allSlides);
         } catch (err) {
-            console.error('GET /sliders error:', err);
+            logger.error('GET /sliders error:', err);
             return apiResponse.errors.serverError(res, 'Slider verileri yüklenirken hata oluştu');
         }
     });
@@ -101,7 +102,7 @@ function createSlidersRouter(middlewares) {
                 return apiResponse.errors.notFound(res, 'Slider');
             }
         } catch (err) {
-            console.error('GET /sliders/:id error:', err);
+            logger.error('GET /sliders/:id error:', err);
             return apiResponse.errors.serverError(res, 'Slider yüklenirken hata oluştu');
         }
     });
@@ -111,7 +112,7 @@ function createSlidersRouter(middlewares) {
         try {
             const { contentType, contentId, sliderTitle, sliderSubtitle, sliderOrder } = req.body;
             
-            console.log('POST /sliders request:', { contentType, contentId, sliderTitle, sliderSubtitle, sliderOrder });
+            logger.info('POST /sliders request:', { contentType, contentId, sliderTitle, sliderSubtitle, sliderOrder });
             
             // contentType: 'car' | 'news' | 'slider'
             // contentId: UUID of car/news or null for new slider
@@ -150,7 +151,7 @@ function createSlidersRouter(middlewares) {
                         car: rows[0]
                     }, 201);
                 } catch (updateErr) {
-                    console.error('UPDATE cars error:', updateErr);
+                    logger.error('UPDATE cars error:', updateErr);
                     // If columns don't exist, try to add them first
                     if (updateErr.message.includes('column') && updateErr.message.includes('does not exist')) {
                         // Try to add missing columns
@@ -177,7 +178,7 @@ function createSlidersRouter(middlewares) {
                                 car: rows[0]
                             }, 201);
                         } catch (alterErr) {
-                            console.error('ALTER TABLE error:', alterErr);
+                            logger.error('ALTER TABLE error:', alterErr);
                             return apiResponse.errors.serverError(res, `Veritabanı hatası: ${alterErr.message}`);
                         }
                     }
@@ -185,16 +186,16 @@ function createSlidersRouter(middlewares) {
                 }
             } else if (contentType === 'news' && contentId) {
                 // Mark news for slider - create a slider entry linking to news
-                console.log('Adding news to slider:', { contentId, sliderTitle, sliderSubtitle, sliderOrder });
+                logger.info('Adding news to slider:', { contentId, sliderTitle, sliderSubtitle, sliderOrder });
                 
                 const newsResult = await pool.query('SELECT id, title, description, image FROM news WHERE id = $1', [contentId]);
                 if (newsResult.rows.length === 0) {
-                    console.error('News not found:', contentId);
+                    logger.error('News not found:', contentId);
                     return apiResponse.errors.notFound(res, 'Haber');
                 }
                 
                 const news = newsResult.rows[0];
-                console.log('Found news:', { id: news.id, title: news.title, image: news.image });
+                logger.info('Found news:', { id: news.id, title: news.title, image: news.image });
                 
                 // Get max order if sliderOrder not provided
                 let finalOrder = sliderOrder;
@@ -203,7 +204,7 @@ function createSlidersRouter(middlewares) {
                         const maxOrderResult = await pool.query('SELECT COALESCE(MAX("order"), 0) + 1 as max_order FROM sliders');
                         finalOrder = maxOrderResult.rows[0]?.max_order || 1;
                     } catch (orderErr) {
-                        console.warn('Error getting max order, using 1:', orderErr);
+                        logger.warn('Error getting max order, using 1:', orderErr);
                         finalOrder = 1;
                     }
                 }
@@ -212,7 +213,7 @@ function createSlidersRouter(middlewares) {
                 const insertSubtitle = sliderSubtitle || news.description || null;
                 const insertImage = news.image || null;
                 
-                console.log('Inserting slider:', { 
+                logger.info('Inserting slider:', { 
                     title: insertTitle, 
                     subtitle: insertSubtitle, 
                     image: insertImage, 
@@ -234,11 +235,11 @@ function createSlidersRouter(middlewares) {
                         ]
                     );
                     
-                    console.log('Slider created successfully:', rows[0]);
+                    logger.info('Slider created successfully:', rows[0]);
                     return apiResponse.success(res, rows[0], 201);
                 } catch (insertErr) {
-                    console.error('INSERT INTO sliders error:', insertErr);
-                    console.error('Error details:', {
+                    logger.error('INSERT INTO sliders error:', insertErr);
+                    logger.error('Error details:', {
                         message: insertErr.message,
                         code: insertErr.code,
                         detail: insertErr.detail
@@ -247,7 +248,7 @@ function createSlidersRouter(middlewares) {
                     // Check if sliders table exists, if not create it
                     if (insertErr.message.includes('does not exist') || insertErr.code === '42P01') {
                         try {
-                            console.log('Creating sliders table...');
+                            logger.info('Creating sliders table...');
                             await pool.query(`
                                 CREATE TABLE IF NOT EXISTS sliders (
                                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -281,10 +282,10 @@ function createSlidersRouter(middlewares) {
                                 ]
                             );
                             
-                            console.log('Slider created after table creation:', rows[0]);
+                            logger.info('Slider created after table creation:', rows[0]);
                             return apiResponse.success(res, rows[0], 201);
                         } catch (createErr) {
-                            console.error('Error creating sliders table:', createErr);
+                            logger.error('Error creating sliders table:', createErr);
                             return apiResponse.errors.serverError(res, `Veritabanı hatası: ${createErr.message}`);
                         }
                     }
@@ -318,8 +319,8 @@ function createSlidersRouter(middlewares) {
                 return apiResponse.errors.badRequest(res, 'Geçersiz contentType veya contentId');
             }
         } catch (err) {
-            console.error('POST /sliders error:', err);
-            console.error('Error stack:', err.stack);
+            logger.error('POST /sliders error:', err);
+            logger.error('Error stack:', err.stack);
             return apiResponse.errors.serverError(res, `Slider oluşturulurken hata oluştu: ${err.message}`);
         }
     });
@@ -382,7 +383,7 @@ function createSlidersRouter(middlewares) {
                 return apiResponse.errors.notFound(res, 'Slider');
             }
         } catch (err) {
-            console.error('PUT /sliders/:id error:', err);
+            logger.error('PUT /sliders/:id error:', err);
             return apiResponse.errors.serverError(res, 'Slider güncellenirken hata oluştu');
         }
     });
@@ -434,7 +435,7 @@ function createSlidersRouter(middlewares) {
                     // Delete image from R2 (non-blocking, log errors but don't fail the request)
                     if (imageKeys.length > 0) {
                         deleteObjects(imageKeys).catch(err => {
-                            console.error('Failed to delete slider image from R2:', err);
+                            logger.error('Failed to delete slider image from R2:', err);
                         });
                     }
 
@@ -444,7 +445,7 @@ function createSlidersRouter(middlewares) {
             
             return apiResponse.errors.notFound(res, 'Slider');
         } catch (err) {
-            console.error('DELETE /sliders/:id error:', err);
+            logger.error('DELETE /sliders/:id error:', err);
             return apiResponse.errors.serverError(res, 'Slider silinirken hata oluştu');
         }
     });

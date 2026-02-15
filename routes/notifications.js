@@ -2,6 +2,7 @@ const express = require('express');
 const pool = require('../db');
 const { requireAdmin } = require('../middleware/auth');
 const fcmService = require('../services/fcm');
+const logger = require('../services/logger');
 
 // Factory function that creates router with injected middleware
 function createNotificationsRouter(middlewares) {
@@ -14,7 +15,7 @@ function createNotificationsRouter(middlewares) {
             // For now, return empty array - can be extended to store notification history
             return apiResponse.success(res, []);
         } catch (err) {
-            console.error('GET /notifications error:', err);
+            logger.error('GET /notifications error:', err);
             return apiResponse.errors.serverError(res, 'Bildirimler yüklenirken hata oluştu');
         }
     });
@@ -48,7 +49,7 @@ function createNotificationsRouter(middlewares) {
                 return apiResponse.errors.serverError(res, result.error || 'Bildirim gönderilemedi');
             }
         } catch (err) {
-            console.error('POST /notifications/send error:', err);
+            logger.error('POST /notifications/send error:', err);
             return apiResponse.errors.serverError(res, 'Bildirim gönderilirken hata oluştu: ' + (err.message || 'Bilinmeyen hata'));
         }
     });

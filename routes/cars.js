@@ -8,14 +8,14 @@ const logger = require('../services/logger');
 // Transform admin panel data format to app format
 function transformCarDataForApp(data) {
     if (!data || typeof data !== 'object') return data;
-    
+
     const transformed = { ...data };
-    
+
     // Transform specifications if they exist
     if (data.specifications && typeof data.specifications === 'object') {
         const specs = data.specifications;
         const appSpecs = {};
-        
+
         // Motor bilgileri
         if (specs.engine) appSpecs['Motor Kodu'] = specs.engine;
         if (specs.engineCapacity) appSpecs['Motor Hacmi'] = specs.engineCapacity;
@@ -27,7 +27,7 @@ function transformCarDataForApp(data) {
         if (specs.drivetrain) appSpecs['Sürüş Tipi'] = specs.drivetrain;
         if (specs.fuelType) appSpecs['Yakıt Tipi'] = specs.fuelType;
         if (specs.fuelCapacity) appSpecs['Yakıt Deposu'] = specs.fuelCapacity;
-        
+
         // Boyutlar
         if (specs.length) appSpecs['Uzunluk'] = specs.length;
         if (specs.width) appSpecs['Genişlik'] = specs.width;
@@ -35,46 +35,66 @@ function transformCarDataForApp(data) {
         if (specs.wheelbase) appSpecs['Aks Mesafesi'] = specs.wheelbase;
         if (specs.weight) appSpecs['Ağırlık'] = specs.weight;
         if (specs.trunkCapacity) appSpecs['Bagaj Hacmi'] = specs.trunkCapacity;
-        
+
         // Güvenlik
         if (specs.airbags) appSpecs['Hava Yastığı'] = specs.airbags;
         if (specs.abs) appSpecs['ABS'] = specs.abs;
         if (specs.esp) appSpecs['ESP'] = specs.esp;
         if (specs.isofix) appSpecs['ISOFIX'] = specs.isofix;
-        
+
         // Konfor ve Teknoloji
         if (specs.climateControl) appSpecs['Klima'] = specs.climateControl;
         if (specs.navigation) appSpecs['Navigasyon'] = specs.navigation;
         if (specs.bluetooth) appSpecs['Bluetooth'] = specs.bluetooth;
         if (specs.wirelessCharging) appSpecs['Kablosuz Şarj'] = specs.wirelessCharging;
-        
-        // Merge with existing specifications (if any)
-        transformed.specifications = { ...appSpecs, ...(data.specifications || {}) };
+
+        // Replace English keys with Turkish keys (avoid duplicates)
+        // First, collect which English keys we've already mapped to Turkish
+        const mappedEnglishKeys = new Set([
+            'engine', 'engineCapacity', 'cylinders', 'valves', 'power', 'torque',
+            'transmission', 'drivetrain', 'fuelType', 'fuelCapacity',
+            'length', 'width', 'height', 'wheelbase', 'weight', 'trunkCapacity',
+            'airbags', 'abs', 'esp', 'isofix',
+            'climateControl', 'navigation', 'bluetooth', 'wirelessCharging'
+        ]);
+
+        // Keep original specs that we haven't mapped to Turkish
+        const remainingSpecs = {};
+        if (data.specifications) {
+            for (const [key, value] of Object.entries(data.specifications)) {
+                if (!mappedEnglishKeys.has(key)) {
+                    remainingSpecs[key] = value;
+                }
+            }
+        }
+
+        // Turkish keys take priority, then unmapped original keys
+        transformed.specifications = { ...appSpecs, ...remainingSpecs };
     }
-    
+
     // Transform performance data (admin panel sends as performanceData)
     const perfData = data.performanceData || data.performance;
     if (perfData && typeof perfData === 'object') {
         if (!transformed.specifications) transformed.specifications = {};
-        
+
         if (perfData.acceleration) transformed.specifications['0-100 km/s'] = perfData.acceleration;
         if (perfData.topSpeed) transformed.specifications['Maks. Hız'] = perfData.topSpeed;
     }
-    
+
     // Transform efficiency data (admin panel sends as efficiencyData)
     const effData = data.efficiencyData || data.efficiency;
     if (effData && typeof effData === 'object') {
         if (!transformed.specifications) transformed.specifications = {};
-        
+
         if (effData.city) transformed.specifications['Yakıt Tüketimi (Şehir)'] = effData.city;
         if (effData.highway) transformed.specifications['Yakıt Tüketimi (Yol)'] = effData.highway;
         if (effData.combined) transformed.specifications['Yakıt Tüketimi (Karma)'] = effData.combined;
     }
-    
+
     // Keep original performanceData and efficiencyData for backward compatibility
     if (data.performanceData) transformed.performanceData = data.performanceData;
     if (data.efficiencyData) transformed.efficiencyData = data.efficiencyData;
-    
+
     return transformed;
 }
 
@@ -178,11 +198,14 @@ function createCarsRouter(middlewares) {
             // Transform admin panel data format to app format
             const transformedData = transformCarDataForApp(data || {});
 
+            // Extract year from data for the year column
+            const year = data?.year || transformedData?.year || null;
+
             const { rows } = await pool.query(
-                `INSERT INTO cars (make, model, variant, body_type, status, data)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+                `INSERT INTO cars (make, model, variant, body_type, status, year, data)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
          RETURNING *`,
-                [make, model, variant || null, bodyType || null, status || 'draft', JSON.stringify(transformedData)]
+                [make, model, variant || null, bodyType || null, status || 'draft', year, JSON.stringify(transformedData)]
             );
 
             return apiResponse.success(res, mapCarRow(rows[0]), 201);
@@ -301,12 +324,12 @@ function createCarsRouter(middlewares) {
             }
 
             const car = mapCarRow(carRows[0]);
-            
+
             // Extract image keys from R2 public URLs
             const imageKeys = [];
             if (car.data) {
                 const data = typeof car.data === 'string' ? JSON.parse(car.data) : car.data;
-                
+
                 // Extract from imageUrls array
                 if (data.imageUrls && Array.isArray(data.imageUrls)) {
                     for (const url of data.imageUrls) {
@@ -316,13 +339,13 @@ function createCarsRouter(middlewares) {
                         }
                     }
                 }
-                
+
                 // Extract from imageUrl (single)
                 if (data.imageUrl && typeof data.imageUrl === 'string') {
                     const key = extractKeyFromPublicUrl(data.imageUrl);
                     if (key) imageKeys.push(key);
                 }
-                
+
                 // Extract from images array (legacy)
                 if (data.images && Array.isArray(data.images)) {
                     for (const url of data.images) {

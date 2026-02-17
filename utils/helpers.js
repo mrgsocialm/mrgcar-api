@@ -19,6 +19,16 @@ function formatTimeAgo(date) {
 
 // Helper: Cars DB row -> response
 function mapCarRow(row) {
+    // Sanitize data JSON — ensure arrays have no null values
+    // (Flutter app crashes on null in performanceData/efficiencyData)
+    const data = row.data || {};
+    if (Array.isArray(data.performanceData)) {
+        data.performanceData = data.performanceData.map(v => v ?? 0);
+    }
+    if (Array.isArray(data.efficiencyData)) {
+        data.efficiencyData = data.efficiencyData.map(v => v ?? 0);
+    }
+
     return {
         id: row.id,
         make: row.make,
@@ -26,7 +36,7 @@ function mapCarRow(row) {
         variant: row.variant || '',
         bodyType: row.body_type || '',
         status: row.status,
-        data: row.data || {},
+        data: data,
         showInSlider: row.show_in_slider || false,
         sliderTitle: row.slider_title || null,
         sliderSubtitle: row.slider_subtitle || null,

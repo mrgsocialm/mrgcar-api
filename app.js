@@ -297,6 +297,19 @@ v1Router.use('/uploads', uploadsRouter);
 
 app.use('/v1', v1Router);
 
+// Also mount at root level for backward compatibility
+// (Flutter app v1.0.5 on Play Store uses URLs without /v1 prefix)
+app.use('/cars', carsRouter);
+app.use('/auth', authRouter);
+app.use('/admin', adminRouter);
+app.use('/news', newsRouter);
+app.use('/forum', forumRouter);
+app.use('/sliders', slidersRouter);
+app.use('/reviews', reviewsRouter);
+app.use('/notifications', notificationsRouter);
+app.use('/users', usersRouter);
+app.use('/uploads', uploadsRouter);
+
 // Export app and dependencies for other modules and tests
 module.exports = {
     app,
